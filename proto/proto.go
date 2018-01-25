@@ -124,7 +124,13 @@ func decodeDict(r *bytes.Reader) (interface{}, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanWords)
 
-	scanner.Scan()
+	if !scanner.Scan() {
+		return nil, ErrBadMsg
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
 	b := scanner.Bytes()
 	size, err := strconv.Atoi(string(b))
 	if err != nil {
