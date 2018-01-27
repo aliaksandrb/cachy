@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/aliaksandrb/cachy/server"
@@ -13,12 +14,15 @@ func main() {
 		panic(err)
 	}
 
-	s.Set("yy", 1, 0)
-	s.Set("gg", "xxx", time.Second)
+	s.Set("yy", 1, 5*time.Second)
+	s.Set("gg", "xxx", 5*time.Second)
+
+	for i := 0; i < 100; i++ {
+		go s.Set(fmt.Sprintf("%d", i), i, time.Duration(rand.Intn(i+1))*time.Millisecond)
+	}
 
 	for {
 		fmt.Println(s.Get("gg"))
-		fmt.Println(s.Get("yy"))
 		fmt.Println("-----", s, "-----------")
 		time.Sleep(1 * time.Second)
 	}
