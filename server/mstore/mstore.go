@@ -10,7 +10,7 @@ import (
 )
 
 // TODO the more the better for concurent access.
-const defaultBucketsNum int = 32
+const defaultBucketsNum int = 3
 
 var zeroTime = time.Time{}
 
@@ -28,15 +28,20 @@ func New(bucketsNum int) (*mStore, error) {
 	for i := range buckets {
 		buckets[i] = newBucket()
 	}
-	//go m.startPurger()
 
-	return &mStore{
+	m := &mStore{
 		buckets: buckets,
-	}, nil
+		purger:  newPurger(),
+	}
+
+	go m.startPurger()
+
+	return m, nil
 }
 
 type mStore struct {
 	buckets []*bucket
+	purger  *purger
 }
 
 func (m *mStore) String() string {
@@ -66,13 +71,14 @@ func (m *mStore) hash(k []byte) uint64 {
 
 type bucket struct {
 	s map[string]*entry
-	//purger *purger
-	//keys   []string
 
 	mu sync.RWMutex
 }
 
 func (b *bucket) String() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	return fmt.Sprintf(`
 		%+v
 	`, b.s)
@@ -81,18 +87,24 @@ func (b *bucket) String() string {
 func newBucket() *bucket {
 	return &bucket{
 		s: make(map[string]*entry),
-		//keys: make([]string, 1),
 	}
 }
 
-//func (m *mStore) startPurger() {
-//	m.purger = &purger{
-//		purgeQueue: make(chan string),
-//		quit:       make(chan struct{}),
-//		store:      m,
-//	}
-//	m.purger.Start()
-//}
+func (m *mStore) startPurger() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.purger.quit:
+			return
+		case <-ticker.C:
+			for _, b := range m.buckets {
+				m.purger.purgeStaleKeys(b)
+			}
+		}
+	}
+}
 
 func (m *mStore) Remove(key string) error {
 	b := m.getBucket(key)
@@ -108,15 +120,15 @@ func (m *mStore) Get(key string) (val interface{}, found bool, err error) {
 	e, ok := b.s[key]
 	b.mu.RUnlock()
 
-	if ok && e != nil && !e.expired() {
-		return e.val, true, nil
+	if !ok {
+		return nil, false, nil
 	}
 
-	///	if ok {
-	///		go func() { m.purger.purgeQueue <- key }()
-	///	}
+	if e == nil || e.expired() {
+		go m.Remove(key)
+	}
 
-	return nil, false, nil
+	return e.val, true, nil
 }
 
 func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
@@ -130,7 +142,6 @@ func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
 	b.s[key] = &entry{val: val, ttl: ttl}
-	//b.keys = append(m.keys, key)
 	b.mu.Unlock()
 
 	return nil
@@ -145,52 +156,39 @@ func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
 //	m.mx.RUnlock()
 //}
 
-//type purger struct {
-//	purgeQueue chan string
-//	quit       chan struct{}
-//	store      *memorystore
-//}
-//
-//func (p *purger) Start() {
-//	ticker := time.NewTicker(5 * time.Second)
-//	defer ticker.Stop()
-//
-//Loop:
-//	for {
-//		select {
-//		case key := <-p.purgeQueue:
-//			if err := p.store.Remove(key); err != nil {
-//				fmt.Println("key %v is already evicted: %v", key, err)
-//			}
-//		case <-ticker.C:
-//			p.purgeStaleKeys()
-//		case <-p.quit:
-//			break Loop
-//		}
-//	}
-//}
-//
-//func (p *purger) purgeStaleKeys() {
-//	var key string
-//	size := len(p.store.keys)
-//	quater := size / 4
-//	if quater < 2 {
-//		quater = size
-//	}
-//
-//	for i := 0; i < quater; i++ {
-//		key = p.store.keys[rand.Intn(size)]
-//		if _, _, err := p.store.Get(key); err != nil {
-//			fmt.Println("key %v is already evicted: %v", key, err)
-//		}
-//	}
-//
-//	p.store.RefreshKeys()
-//}
-//
-//func (p *purger) Stop() {
-//	close(p.quit)
-//}
+type purger struct {
+	quit chan struct{}
+}
+
+func newPurger() *purger {
+	return &purger{quit: make(chan struct{})}
+}
+
+func (p *purger) purgeStaleKeys(b *bucket) {
+	b.mu.Lock()
+	// TODO make lock shorter
+
+	for k, e := range b.s {
+		if e == nil || e.expired() {
+			delete(b.s, k)
+		}
+	}
+	//var key string
+	//size := len(p.store.keys)
+	//quater := size / 4
+	//if quater < 2 {
+	//	quater = size
+	//}
+
+	//for i := 0; i < quater; i++ {
+	//	key = p.store.keys[rand.Intn(size)]
+	//	if _, _, err := p.store.Get(key); err != nil {
+	//		fmt.Println("key %v is already evicted: %v", key, err)
+	//	}
+	//}
+
+	b.mu.Unlock()
+}
 
 type entry struct {
 	val interface{}
