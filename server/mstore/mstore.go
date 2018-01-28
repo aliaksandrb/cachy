@@ -110,13 +110,14 @@ func (m *mStore) startPurger() {
 func (m *mStore) Get(key string) (val interface{}, found bool, err error) {
 	b := m.getBucket(key)
 	b.mu.RLock()
+	defer b.mu.RUnlock()
 	e, ok := b.s[key]
-	b.mu.RUnlock()
 
 	if !ok {
 		return nil, false, nil
 	}
 
+	// TODO entry level lock rather than bucket?
 	if e == nil || e.expired() {
 		go m.Remove(key)
 	}
@@ -124,18 +125,36 @@ func (m *mStore) Get(key string) (val interface{}, found bool, err error) {
 	return e.val, true, nil
 }
 
-func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
-	var ttl time.Time
+func getTTL(t time.Duration) time.Time {
 	if t == 0 {
-		ttl = zeroTime
-	} else {
-		ttl = time.Now().Add(t)
+		return zeroTime
 	}
 
+	return time.Now().Add(t)
+}
+
+func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
-	b.s[key] = &entry{val: val, ttl: ttl}
+	b.s[key] = &entry{val: val, ttl: getTTL(t)}
 	b.mu.Unlock()
+
+	return nil
+}
+
+func (m *mStore) Update(key string, val interface{}, t time.Duration) error {
+	b := m.getBucket(key)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	e, ok := b.s[key]
+	if !ok {
+		return nil
+	}
+
+	e.val = val
+	e.ttl = getTTL(t)
+	b.s[key] = e
 
 	return nil
 }
