@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/aliaksandrb/cachy/server/memorystore"
+	"github.com/aliaksandrb/cachy/server/mstore"
 )
 
 type Store interface {
@@ -25,7 +25,8 @@ var (
 
 func New(st storeType) (Store, error) {
 	if st == MemoryStore {
-		return memorystore.New()
+		// TODO pass at creation.
+		return mstore.New(0)
 	}
 
 	return nil, ErrInvalidStoreType
