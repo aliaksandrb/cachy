@@ -11,6 +11,7 @@ type Store interface {
 	Get(key string) (val interface{}, found bool, err error)
 	Set(key string, val interface{}, ttl time.Duration) error
 	Remove(key string) error
+	Keys() []string
 }
 
 type storeType int

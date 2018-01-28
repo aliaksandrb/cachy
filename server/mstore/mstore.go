@@ -48,11 +48,12 @@ func (m *mStore) String() string {
 	return fmt.Sprintf(`
 		mStore {
 			bucketsNum: %d
+			keys: %v
 			buckets: {
 				%s
 			}
 		}
-	`, m.bucketsNum(), m.buckets)
+	`, m.bucketsNum(), m.Keys(), m.buckets)
 }
 
 func (m *mStore) bucketsNum() int {
@@ -106,14 +107,6 @@ func (m *mStore) startPurger() {
 	}
 }
 
-func (m *mStore) Remove(key string) error {
-	b := m.getBucket(key)
-	b.mu.Lock()
-	delete(b.s, key)
-	b.mu.Unlock()
-	return nil
-}
-
 func (m *mStore) Get(key string) (val interface{}, found bool, err error) {
 	b := m.getBucket(key)
 	b.mu.RLock()
@@ -147,14 +140,25 @@ func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
 	return nil
 }
 
-//func (m *memorystore) RefreshKeys() {
-//	m.mx.RLock()
-//	m.keys = m.keys[:0]
-//	for k, _ := range m.s {
-//		m.keys = append(m.keys, k)
-//	}
-//	m.mx.RUnlock()
-//}
+func (m *mStore) Remove(key string) error {
+	b := m.getBucket(key)
+	b.mu.Lock()
+	delete(b.s, key)
+	b.mu.Unlock()
+	return nil
+}
+
+func (m *mStore) Keys() (keys []string) {
+	for _, b := range m.buckets {
+		b.mu.RLock()
+		for k := range b.s {
+			keys = append(keys, k)
+		}
+		b.mu.RUnlock()
+	}
+
+	return
+}
 
 type purger struct {
 	quit chan struct{}

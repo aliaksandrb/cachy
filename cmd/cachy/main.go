@@ -15,7 +15,6 @@ func main() {
 
 	go s.Set("yy", 1, 5*time.Second)
 	go s.Set("gg", "xxx", 5*time.Second)
-	time.Sleep(5 * time.Second)
 	fmt.Println(s)
 	go s.Get("yy")
 	go s.Get("gg")
