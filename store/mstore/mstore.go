@@ -2,7 +2,6 @@ package mstore
 
 import (
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -14,11 +13,6 @@ const defaultBucketsNum int = 3
 
 var zeroTime = time.Time{}
 
-func init() {
-	rand.Seed(time.Now().UTC().UnixNano())
-}
-
-// TODO to be an interface Store
 func New(bucketsNum int) (*mStore, error) {
 	if bucketsNum == 0 {
 		bucketsNum = defaultBucketsNum
@@ -39,6 +33,7 @@ func New(bucketsNum int) (*mStore, error) {
 	return m, nil
 }
 
+// mStore implements store.Store
 type mStore struct {
 	buckets []*bucket
 	purger  *purger

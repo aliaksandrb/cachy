@@ -1,31 +1,31 @@
 package main
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/aliaksandrb/cachy/server"
+	"github.com/aliaksandrb/cachy/store"
 )
 
 func main() {
-	s, err := server.New(server.MemoryStore)
+	// TODO pass as config?
+	// TODO probbly panic in Run
+	err := server.Run(store.MemoryStore, "tcp", ":3000")
 	if err != nil {
 		panic(err)
 	}
 
-	go s.Set("yy", 1, 5*time.Second)
-	go s.Set("gg", "xxx", 5*time.Second)
-	fmt.Println(s)
-
-	go s.Get("yy")
-	go s.Get("gg")
-	time.Sleep(3 * time.Second)
-	go s.Update("gg", "ggggggg", 1*time.Second)
-	fmt.Println(s)
-	go s.Get("yy")
-	go s.Get("gg")
-
-	fmt.Println(s)
+	//	go s.Set("yy", 1, 5*time.Second)
+	//	go s.Set("gg", "xxx", 5*time.Second)
+	//	fmt.Println(s)
+	//
+	//	go s.Get("yy")
+	//	go s.Get("gg")
+	//	time.Sleep(3 * time.Second)
+	//	go s.Update("gg", "ggggggg", 1*time.Second)
+	//	fmt.Println(s)
+	//	go s.Get("yy")
+	//	go s.Get("gg")
+	//
+	//	fmt.Println(s)
 
 	///	for i := 0; i < 1000; i++ {
 	///		go func(x int) {

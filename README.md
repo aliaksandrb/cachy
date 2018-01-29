@@ -11,12 +11,12 @@ Simple implementation of Redis-like in-memory cache.
 	- lists
 	- dict support
 - Per-key TTL
-- Operations:
-	- Get
-	- Set
-	- Update
-	- Remove
-	- Keys
+- ~~Operations:~~
+	- ~~Get~~
+	- ~~Set~~
+	- ~~Update~~
+	- ~~Remove~~
+	- ~~Keys~~
 - Custom operations:
 	- Get i element on list
 	- Get value by key from dict
