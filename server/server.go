@@ -2,7 +2,6 @@ package server
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +20,7 @@ func Run(st store.Type, p string, service string) (err error) {
 	if err != nil {
 		return
 	}
+	defer listener.Close()
 
 	dbStore, err := store.New(st)
 	if err != nil {
@@ -44,31 +44,6 @@ func Run(st store.Type, p string, service string) (err error) {
 	return nil
 }
 
-type server struct {
-	store store.Store
-}
-
-func (s *server) processMsg(m []byte) ([]byte, error) {
-	if len(m) == 0 {
-		return nil, fmt.Errorf("empty message")
-	}
-	if m[0] == '\n' {
-		m = m[1:]
-	}
-
-	fmt.Printf("\n===> Got: %q| \n %#v|\n", string(m), string(m))
-	//TODO one interation
-	m = bytes.Replace(bytes.Replace(m, []byte("\\n"), []byte{'\n'}, -1), []byte("\\r"), []byte{'\r'}, -1)
-
-	v, err := proto.Decode(m[:len(m)-1])
-	if err != nil {
-		//TODO encode error
-		return nil, err
-	}
-	fmt.Println("got: ", v)
-	return []byte("hi from server\n"), nil
-}
-
 func (s *server) handleClient(conn net.Conn) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -80,7 +55,7 @@ func (s *server) handleClient(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 
 	for {
-		msg, err := reader.ReadBytes('\r')
+		msg, err := reader.ReadBytes('\n')
 		if err == io.EOF {
 			return
 		}
@@ -102,4 +77,25 @@ func (s *server) handleClient(conn net.Conn) {
 			// TODO retry
 		}
 	}
+}
+
+type server struct {
+	store store.Store
+}
+
+func (s *server) processMsg(m []byte) ([]byte, error) {
+	fmt.Printf("got: %q\n", m)
+
+	v, err := proto.Decode(m)
+	if err != nil {
+		return proto.Encode(err, false)
+	}
+
+	out, err := proto.Encode(v, false)
+	fmt.Printf("out: %q\n", out)
+	if err != nil {
+		return proto.Encode(err, false)
+	}
+
+	return out, nil
 }
