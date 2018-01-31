@@ -8,19 +8,11 @@ import (
 	"strconv"
 )
 
-type protoType byte
-
-const (
-	stringType protoType = '$'
-	sliceType  protoType = '@'
-	mapType    protoType = ':'
-	errType    protoType = '!'
-	nilType    protoType = '*'
-)
-
 var (
 	ErrUnsupportedType = errors.New("unsupported type")
 	ErrBadMsg          = errors.New("malformed message")
+	ErrUnknown         = errors.New("unknown error")
+	ErrBadDelimiter    = errors.New("bad delimiter")
 )
 
 var (
@@ -158,15 +150,15 @@ func encodeMap(in map[string]interface{}, skipEnding bool) []byte {
 	return res
 }
 
-func Decode(in []byte) (interface{}, error) {
-	if len(in) < 3 || !bytes.HasSuffix(in, sep) {
-		return nil, ErrBadMsg
-	}
+//func Decode(in []byte) (interface{}, error) {
+//	if len(in) < 3 || !bytes.HasSuffix(in, sep) {
+//		return nil, ErrBadMsg
+//	}
+//
+//	return decode(bytes.TrimSuffix(in, sep))
+//}
 
-	return decode(bytes.TrimSuffix(in, sep))
-}
-
-func decode(in []byte) (interface{}, error) {
+func decodeValue(in []byte) (interface{}, error) {
 	in = bytes.Replace(in, []byte("\\n"), []byte{'\n'}, -1)
 
 	r := bytes.NewReader(in)
@@ -175,7 +167,7 @@ func decode(in []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	switch protoType(firstByte) {
+	switch head(firstByte) {
 	case stringType:
 		return decodeString(r)
 	case nilType:
@@ -242,7 +234,7 @@ func decodeSlice(r *bytes.Reader) ([]interface{}, error) {
 	}
 
 	for scanner.Scan() {
-		v, err := decode(scanner.Bytes())
+		v, err := decodeValue(scanner.Bytes())
 		if err != nil {
 			return nil, err
 		}
@@ -286,7 +278,7 @@ func decodeMap(r *bytes.Reader) (interface{}, error) {
 	var assign, ok bool
 
 	for scanner.Scan() {
-		v, err := decode(scanner.Bytes())
+		v, err := decodeValue(scanner.Bytes())
 		if err != nil {
 			return nil, err
 		}

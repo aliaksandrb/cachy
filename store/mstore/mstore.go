@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/spaolacci/murmur3"
+
+	log "github.com/aliaksandrb/cachy/logger"
 )
 
 // TODO the more the better for concurent access.
@@ -129,6 +131,7 @@ func getTTL(t time.Duration) time.Time {
 }
 
 func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
+	log.Info("set %s %+v %v", key, val, t)
 	b := m.getBucket(key)
 	b.mu.Lock()
 	b.s[key] = &entry{val: val, ttl: getTTL(t)}
