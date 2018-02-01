@@ -6,13 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-)
+	"time"
 
-var (
-	ErrUnsupportedType = errors.New("unsupported type")
-	ErrBadMsg          = errors.New("malformed message")
-	ErrUnknown         = errors.New("unknown error")
-	ErrBadDelimiter    = errors.New("bad delimiter")
+	log "github.com/aliaksandrb/cachy/logger"
 )
 
 var (
@@ -159,15 +155,18 @@ func encodeMap(in map[string]interface{}, skipEnding bool) []byte {
 //}
 
 func decodeValue(in []byte) (interface{}, error) {
-	in = bytes.Replace(in, []byte("\\n"), []byte{'\n'}, -1)
+	//in = bytes.Replace(in, []byte("\\n"), []byte{'\n'}, -1)
 
+	log.Info("decodeValue %q", in)
 	r := bytes.NewReader(in)
 	firstByte, err := r.ReadByte()
 	if err != nil {
 		return nil, err
 	}
 
-	switch head(firstByte) {
+	log.Info("firstByte %q", firstByte)
+
+	switch marker(firstByte) {
 	case stringType:
 		return decodeString(r)
 	case nilType:
@@ -222,6 +221,8 @@ func decodeSlice(r *bytes.Reader) ([]interface{}, error) {
 
 	scanner.Scan()
 	b := scanner.Bytes()
+
+	log.Info("decodeSlice %q", b)
 
 	size, err := strconv.Atoi(string(b))
 	if err != nil {
@@ -304,4 +305,21 @@ func decodeMap(r *bytes.Reader) (interface{}, error) {
 	}
 
 	return dict, nil
+}
+
+func bytesToDuration(b []byte) (t time.Duration, err error) {
+	// TODO better way
+	ttl, err := strconv.Atoi(string(b[:len(b)-1]))
+	if err != nil {
+		log.Err("bad ttl format: %v", err)
+		return
+	}
+
+	if ttl < 0 {
+		log.Err("negative ttl doesn't make sense: %v", ttl)
+		err = ErrBadMsg
+		return
+	}
+
+	return time.Duration(ttl), nil
 }

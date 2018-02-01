@@ -32,12 +32,12 @@ func Run(st store.Type, p string, service string) (err error) {
 
 	// TODO double server run?
 	s := &server{store: dbStore}
-	fmt.Printf("new server is running on %s localhost%s\n", p, service)
+	log.Info("new server is running on %s localhost%s\n", p, service)
 
 	for {
 		client, err := listener.Accept()
 		if err != nil {
-			fmt.Println("client connection error: ", err)
+			log.Err("client connection error: %v", err)
 			continue
 		}
 
@@ -55,30 +55,40 @@ func (s *server) handleClient(conn net.Conn) {
 	}()
 	defer conn.Close()
 
+	log.Info("new client connected: %+v", conn.RemoteAddr())
+
 	reader := bufio.NewReader(conn)
 
 	for {
+		log.Info("wating for a data...")
+
 		msg, err := reader.ReadBytes('\r')
 		if err == io.EOF {
 			return
 		}
 		if err != nil {
-			fmt.Println("read error: ", err)
+			log.Err("read error: %v", err)
 			return
 		}
+
+		log.Info("processing data: %q", msg)
 
 		resp, err := s.processMsg(msg)
 		if err != nil {
-			fmt.Println("processing msg error: ", err)
+			log.Err("processing msg error: %v", err)
 			return
 		}
 
+		log.Info("attempt to write: %q", resp)
+
 		_, err = conn.Write(resp)
 		if err != nil {
-			fmt.Println("write error: ", err)
+			log.Err("write error: %v", err)
 			return
 			// TODO retry
 		}
+
+		reader.Reset(conn)
 	}
 }
 
@@ -87,14 +97,11 @@ type server struct {
 }
 
 func (s *server) processMsg(m []byte) ([]byte, error) {
-	log.Info("\nstore %+v\n", s.store)
-
-	fmt.Printf("got: %q\n", m)
+	log.Info("\nStore %+v\n", s.store)
 
 	//TODO bad place ehere
-	decoder := proto.NewDecoder()
 
-	parsed, err := decoder.Decode(bytes.NewReader(m))
+	parsed, err := proto.Decode(bytes.NewReader(m))
 	if err != nil {
 		return proto.Encode(err, false)
 	}
@@ -103,6 +110,7 @@ func (s *server) processMsg(m []byte) ([]byte, error) {
 
 	// TODO what is herhe?
 	if r, ok := parsed.(*proto.Request); ok {
+		log.Info("request: %+v", r)
 		v, err = s.processRequest(r)
 		if err != nil {
 			return proto.Encode(err, false)

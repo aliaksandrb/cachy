@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	InfoLog  = log.New(os.Stdout, "[INFO]", log.LstdFlags|log.Lshortfile)
-	ErrLog   = log.New(os.Stderr, "[ERROR]", log.LstdFlags|log.Lshortfile)
+	InfoLog  = log.New(os.Stdout, "[INFO]", log.LstdFlags)
+	ErrLog   = log.New(os.Stderr, "[ERROR]", log.LstdFlags)
 	TraceLog *log.Logger
 )
 
