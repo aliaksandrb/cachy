@@ -2,8 +2,6 @@ package server
 
 import (
 	"bufio"
-	"bytes"
-	"fmt"
 	"io"
 	"net"
 
@@ -50,88 +48,61 @@ func Run(st store.Type, p string, service string) (err error) {
 func (s *server) handleClient(conn net.Conn) {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println("client error: ", err)
+			log.Err("handle client error: %v", err)
 		}
 	}()
 	defer conn.Close()
-
 	log.Info("new client connected: %+v", conn.RemoteAddr())
 
+	var err error
 	reader := bufio.NewReader(conn)
 
 	for {
-		log.Info("wating for a data...")
-
-		msg, err := reader.ReadBytes('\r')
-		if err == io.EOF {
+		if err = s.handleMessage(reader, conn); err != nil {
+			log.Info("closing a client: %+v", conn.RemoteAddr())
 			return
 		}
-		if err != nil {
-			log.Err("read error: %v", err)
-			return
-		}
-
-		log.Info("processing data: %q", msg)
-
-		resp, err := s.processMsg(msg)
-		if err != nil {
-			log.Err("processing msg error: %v", err)
-			return
-		}
-
-		log.Info("attempt to write: %q", resp)
-
-		_, err = conn.Write(resp)
-		if err != nil {
-			log.Err("write error: %v", err)
-			return
-			// TODO retry
-		}
-
 		reader.Reset(conn)
 	}
+}
+
+// Decode -> Process -> Encode
+func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
+	msg, err := proto.Decode(buf)
+	if err == io.EOF {
+		return err
+	}
+	if err != nil {
+		return proto.EncodeErr(w, err)
+	}
+
+	req, ok := msg.(*proto.Req)
+	if !ok {
+		log.Err("unknown message type: %q", msg)
+		return proto.EncodeUnknownErr(w)
+	}
+
+	result, err := s.processRequest(req)
+	if err != nil {
+		return proto.EncodeErr(w, err)
+	}
+
+	resultEncoded, err := proto.Encode(result, false)
+	if err != nil {
+		return proto.EncodeErr(w, err)
+	}
+
+	_, err = w.Write(resultEncoded)
+	return err
 }
 
 type server struct {
 	store store.Store
 }
 
-func (s *server) processMsg(m []byte) ([]byte, error) {
-	log.Info("\nStore %+v\n", s.store)
+func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
+	log.Info("request: %+v", r)
 
-	//TODO bad place ehere
-
-	parsed, err := proto.Decode(bytes.NewReader(m))
-	if err != nil {
-		return proto.Encode(err, false)
-	}
-
-	var v interface{}
-
-	// TODO what is herhe?
-	if r, ok := parsed.(*proto.Request); ok {
-		log.Info("request: %+v", r)
-		v, err = s.processRequest(r)
-		if err != nil {
-			return proto.Encode(err, false)
-		}
-	} else {
-		v = parsed
-	}
-
-	out, err := proto.Encode(v, false)
-	if err != nil {
-		x, _ := proto.Encode(err, false)
-		fmt.Printf("out: %q\n", x)
-		return proto.Encode(err, false)
-	}
-
-	fmt.Printf("out: %q\n", out)
-
-	return out, nil
-}
-
-func (s *server) processRequest(r *proto.Request) (v interface{}, err error) {
 	switch r.Cmd {
 	case proto.CmdGet:
 		v, _, err := s.store.Get(r.Key)

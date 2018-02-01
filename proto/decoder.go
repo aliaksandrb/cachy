@@ -15,25 +15,28 @@ type BytesReader interface {
 
 // Decoder interface intended for protocol messages parsing.
 type Decoder interface {
-	// Decode reads from io.Reader r and returns parsed message msg and error err if any.
+	// Decode reads from buffer buf and returns proto.Request req and error err if any.
 	// It should never panic because of user input.
-	Decode(r io.Reader) (msg interface{}, err error)
+	Decode(buf *bufio.Reader) (req Request, err error)
 }
 
 // Decode implements Decoder interface.
-func Decode(r io.Reader) (msg interface{}, err error) {
+func Decode(buf *bufio.Reader) (req Request, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Err("unknown decoding error: %v", e)
-			msg, err = nil, ErrUnknown
+			req, err = nil, ErrUnknown
 		}
 	}()
-
-	buf := bufio.NewReader(r)
 
 	// TODO seek?
 	b, err := buf.ReadByte()
 	if err != nil {
+		if err == io.EOF {
+			log.Err("end of client")
+			return nil, err
+		}
+
 		log.Err("unable to read first byte from message: %v", err)
 		return nil, ErrBadMsg
 	}
@@ -59,7 +62,7 @@ func msgKindByMarker(m marker) (mk msgKind, err error) {
 	return mk, ErrUnsupportedCmd
 }
 
-func decodeMsg(buf *bufio.Reader, mk msgKind, m marker) (msg interface{}, err error) {
+func decodeMsg(buf *bufio.Reader, mk msgKind, m marker) (req Request, err error) {
 	if mk == kindReq {
 		return decodeReq(buf, m)
 	}
@@ -67,8 +70,8 @@ func decodeMsg(buf *bufio.Reader, mk msgKind, m marker) (msg interface{}, err er
 	return decodeRes(buf)
 }
 
-func decodeReq(buf *bufio.Reader, m marker) (req *Request, err error) {
-	req = &Request{
+func decodeReq(buf *bufio.Reader, m marker) (req *Req, err error) {
+	req = &Req{
 		Cmd: m,
 	}
 
@@ -98,7 +101,7 @@ func decodeReq(buf *bufio.Reader, m marker) (req *Request, err error) {
 	return nil, ErrUnsupportedCmd
 }
 
-func assignReqKey(br BytesReader, req *Request, d byte) error {
+func assignReqKey(br BytesReader, req *Req, d byte) error {
 	b, err := br.ReadBytes(d)
 	if err != nil {
 		log.Err("unable to decode message key: %v", err)
@@ -110,7 +113,7 @@ func assignReqKey(br BytesReader, req *Request, d byte) error {
 	return nil
 }
 
-func assignReqValue(br BytesReader, req *Request) error {
+func assignReqValue(br BytesReader, req *Req) error {
 	b, err := br.ReadBytes(nl)
 	if err != nil {
 		log.Err("unable to decode message value: %v", err)
@@ -128,7 +131,7 @@ func assignReqValue(br BytesReader, req *Request) error {
 	return nil
 }
 
-func reqWithoutValue(br BytesReader, req *Request) (*Request, error) {
+func reqWithoutValue(br BytesReader, req *Req) (*Req, error) {
 	err := assignReqKey(br, req, cr)
 	if err != nil {
 		return nil, err
@@ -137,7 +140,7 @@ func reqWithoutValue(br BytesReader, req *Request) (*Request, error) {
 	return req, err
 }
 
-func reqWithValue(br BytesReader, req *Request) (*Request, error) {
+func reqWithValue(br BytesReader, req *Req) (*Req, error) {
 	var err error
 
 	if err = assignReqKey(br, req, nl); err != nil {
@@ -155,7 +158,7 @@ func reqWithValue(br BytesReader, req *Request) (*Request, error) {
 	return req, nil
 }
 
-func assignReqTTL(br BytesReader, req *Request) error {
+func assignReqTTL(br BytesReader, req *Req) error {
 	b, err := br.ReadBytes(cr)
 	if err != nil {
 		log.Err("unable to decode message ttl: %v", err)
@@ -172,7 +175,7 @@ func assignReqTTL(br BytesReader, req *Request) error {
 	return nil
 }
 
-func decodeRes(br BytesReader) (val interface{}, err error) {
+func decodeRes(br BytesReader) (res *Res, err error) {
 	b, err := br.ReadBytes(cr)
 	if err != nil {
 		log.Err("unable to read response message value: %v", err)
@@ -180,5 +183,10 @@ func decodeRes(br BytesReader) (val interface{}, err error) {
 	}
 
 	// TODO not so good to load the full value into memory.
-	return decodeValue(b[:len(b)-1])
+	val, err := decodeValue(b[:len(b)-1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &Res{Value: val}, nil
 }
