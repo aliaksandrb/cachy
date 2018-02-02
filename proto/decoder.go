@@ -2,7 +2,10 @@ package proto
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"strconv"
+	"time"
 
 	log "github.com/aliaksandrb/cachy/logger"
 )
@@ -15,17 +18,17 @@ type BytesReader interface {
 
 // Decoder interface intended for protocol messages parsing.
 type Decoder interface {
-	// Decode reads from buffer buf and returns proto.Request req and error err if any.
+	// Decode reads from buffer buf and returns decoded obj and error err if any.
 	// It should never panic because of user input.
-	Decode(buf *bufio.Reader) (req Request, err error)
+	Decode(buf *bufio.Reader) (obj interface{}, err error)
 }
 
 // Decode implements Decoder interface.
-func Decode(buf *bufio.Reader) (req Request, err error) {
+func Decode(buf *bufio.Reader) (obj interface{}, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Err("unknown decoding error: %v", e)
-			req, err = nil, ErrUnknown
+			obj, err = nil, ErrUnknown
 		}
 	}()
 
@@ -62,7 +65,7 @@ func msgKindByMarker(m marker) (mk msgKind, err error) {
 	return mk, ErrUnsupportedCmd
 }
 
-func decodeMsg(buf *bufio.Reader, mk msgKind, m marker) (req Request, err error) {
+func decodeMsg(buf *bufio.Reader, mk msgKind, m marker) (obj interface{}, err error) {
 	if mk == kindReq {
 		return decodeReq(buf, m)
 	}
@@ -113,15 +116,8 @@ func assignReqKey(br BytesReader, req *Req, d byte) error {
 	return nil
 }
 
-func assignReqValue(br BytesReader, req *Req) error {
-	b, err := br.ReadBytes(nl)
-	if err != nil {
-		log.Err("unable to decode message value: %v", err)
-		return ErrBadMsg
-	}
-
-	// TODO not so good to load the full value into memory.
-	val, err := decodeValue(b[:len(b)-1])
+func assignReqValue(buf *bufio.Reader, req *Req) error {
+	val, err := decodeValue(buf)
 	if err != nil {
 		return err
 	}
@@ -140,18 +136,18 @@ func reqWithoutValue(br BytesReader, req *Req) (*Req, error) {
 	return req, err
 }
 
-func reqWithValue(br BytesReader, req *Req) (*Req, error) {
+func reqWithValue(buf *bufio.Reader, req *Req) (*Req, error) {
 	var err error
 
-	if err = assignReqKey(br, req, nl); err != nil {
+	if err = assignReqKey(buf, req, nl); err != nil {
 		return nil, err
 	}
 
-	if err = assignReqValue(br, req); err != nil {
+	if err = assignReqValue(buf, req); err != nil {
 		return nil, err
 	}
 
-	if err = assignReqTTL(br, req); err != nil {
+	if err = assignReqTTL(buf, req); err != nil {
 		return nil, err
 	}
 
@@ -175,18 +171,163 @@ func assignReqTTL(br BytesReader, req *Req) error {
 	return nil
 }
 
-func decodeRes(br BytesReader) (res *Res, err error) {
-	b, err := br.ReadBytes(cr)
-	if err != nil {
-		log.Err("unable to read response message value: %v", err)
-		return nil, ErrBadMsg
-	}
-
-	// TODO not so good to load the full value into memory.
-	val, err := decodeValue(b[:len(b)-1])
+func decodeRes(buf *bufio.Reader) (obj interface{}, err error) {
+	obj, err = decodeValue(buf)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Res{Value: val}, nil
+	return obj, nil
+}
+
+func decodeValue(buf *bufio.Reader) (interface{}, error) {
+	b, err := buf.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	switch marker(b) {
+	case stringType:
+		return decodeString(buf)
+	case nilType:
+		return nil, decodeNil(buf)
+	case sliceType:
+		return decodeSlice(buf)
+	case mapType:
+		return decodeMap(buf)
+	case errType:
+		return decodeErr(buf)
+	}
+
+	log.Err("unsupported message type: %q", b)
+	return nil, ErrUnsupportedType
+}
+
+func decodeString(br BytesReader) (string, error) {
+	b, err := br.ReadBytes(nl)
+	if err != nil {
+		log.Err("unable to decode string: %q", b)
+		return "", err
+	}
+
+	return string(b[:len(b)-1]), nil
+}
+
+func decodeNil(br io.ByteReader) error {
+	b, err := br.ReadByte()
+	if err != nil || (b != nl && b != cr) {
+		log.Err("unable to decode nil: %q, err: %v", b, err)
+		return ErrBadMsg
+	}
+	return nil
+}
+
+func decodeErr(br BytesReader) (error, error) {
+	s, err := decodeString(br)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO check this part
+	if s == "" {
+		return ErrBadMsg, nil
+	}
+
+	// TODO check other errors too
+	if s == ErrUnsupportedType.Error() {
+		return ErrUnsupportedType, nil
+	}
+
+	return errors.New(s), nil
+}
+
+func decodeSlice(buf *bufio.Reader) (list []interface{}, err error) {
+	size, err := decodeSize(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	if size == 0 {
+		return list, nil
+	}
+
+	list = make([]interface{}, 0, size)
+
+	for i := 0; i < size; i++ {
+		v, err := decodeValue(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		list = append(list, v)
+	}
+
+	return list, nil
+}
+
+func decodeSize(br BytesReader) (size int, err error) {
+	b, err := br.ReadBytes(nl)
+	if err != nil {
+		log.Err("unable to decode size: %q, error: %v", b, err)
+		return 0, ErrBadMsg
+	}
+
+	size, err = strconv.Atoi(string(b[:len(b)-1]))
+	if err != nil {
+		log.Err("unable to convert size from string to int: %q, error: %v", b, err)
+		return 0, ErrBadMsg
+	}
+
+	return size, nil
+}
+
+func decodeMap(buf *bufio.Reader) (dict map[interface{}]interface{}, err error) {
+	size, err := decodeSize(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	if size == 0 {
+		return dict, nil
+	}
+
+	dict = make(map[interface{}]interface{}, size)
+
+	var key interface{}
+	var assign bool
+
+	for i := 0; i < size*2; i++ {
+		v, err := decodeValue(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		if assign {
+			dict[key] = v
+			assign = false
+			continue
+		}
+
+		key = v
+		assign = true
+	}
+
+	return dict, nil
+}
+
+func bytesToDuration(b []byte) (t time.Duration, err error) {
+	// TODO better way
+	ttl, err := strconv.Atoi(string(b[:len(b)-1]))
+	if err != nil {
+		log.Err("bad ttl format: %v", err)
+		return
+	}
+
+	if ttl < 0 {
+		log.Err("negative ttl doesn't make sense: %v", ttl)
+		err = ErrBadMsg
+		return
+	}
+
+	return time.Duration(ttl), nil
 }
