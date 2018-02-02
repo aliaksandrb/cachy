@@ -32,8 +32,7 @@ func Decode(buf *bufio.Reader) (obj interface{}, err error) {
 		}
 	}()
 
-	// TODO seek?
-	b, err := buf.ReadByte()
+	b, err := buf.Peek(1)
 	if err != nil {
 		if err == io.EOF {
 			log.Err("end of client")
@@ -44,7 +43,7 @@ func Decode(buf *bufio.Reader) (obj interface{}, err error) {
 		return nil, ErrBadMsg
 	}
 
-	marker := marker(b)
+	marker := marker(b[0])
 	mk, err := msgKindByMarker(marker)
 	if err != nil {
 		return nil, err
@@ -78,17 +77,18 @@ func decodeReq(buf *bufio.Reader, m marker) (req *Req, err error) {
 		Cmd: m,
 	}
 
-	b, err := buf.ReadByte()
-	if err != nil {
-		log.Err("unable to read request delimiter: %v", err)
+	b := make([]byte, 2)
+	read, err := buf.Read(b)
+	if err != nil || read != 2 {
+		log.Err("unable to read request delimiter: %v, %v, err: %v", read, b, err)
 		return nil, ErrBadMsg
 	}
 
-	if b == cr && m == CmdKeys {
+	if b[1] == cr && m == CmdKeys {
 		return req, nil
 	}
 
-	if b != nl {
+	if b[1] != nl {
 		log.Err("bad request message delimiter: %s", b)
 		return nil, ErrBadDelimiter
 	}

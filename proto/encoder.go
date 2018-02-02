@@ -2,6 +2,8 @@ package proto
 
 import (
 	"fmt"
+
+	log "github.com/aliaksandrb/cachy/logger"
 )
 
 // Encoder interface intended for protocol messages encoding.
@@ -11,129 +13,108 @@ type Encoder interface {
 	Encode(obj interface{}) (msg []byte, err error)
 }
 
-// TODO make skipEnding optional
-func Encode(v interface{}, skipEnding bool) ([]byte, error) {
-	switch t := v.(type) {
-	case nil:
-		return encodeNil(skipEnding), nil
-	case error:
-		return encodeErr(t, skipEnding), nil
-	case string:
-		return encodeString(t, skipEnding), nil
-	case []interface{}:
-		return encodeSlice(t, skipEnding), nil
-	case map[interface{}]interface{}:
-		return encodeMap(t, skipEnding), nil
-	default:
-		fmt.Printf("===> %v --- %T\n", t, t)
+func Encode(obj interface{}) (b []byte, err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			log.Err("unknown encoding error: %v", e)
+			err = ErrUnknown
+		}
+	}()
+
+	b, err = encode(obj)
+	if err != nil {
+		return b, err
 	}
 
+	b[len(b)-1] = cr
+	return append(b, nl), nil
+}
+
+func encode(obj interface{}) (b []byte, err error) {
+	switch t := obj.(type) {
+	case nil:
+		return encodeNil(), nil
+	case error:
+		return encodeErr(t), nil
+	case string:
+		return encodeString(t), nil
+	case []interface{}:
+		return encodeSlice(t), nil
+	case map[interface{}]interface{}:
+		return encodeMap(t), nil
+	}
+
+	log.Err("unknown obj to encode: %v", obj)
 	return nil, ErrUnsupportedType
 }
 
-func encodeNil(skipEnding bool) []byte {
-	if skipEnding {
-		return nilEnc[:1]
-	}
+var nilEnc = []byte{byte(nilType), nl}
 
+func encodeNil() []byte {
 	return nilEnc
 }
 
-func encodeErr(in error, skipEnding bool) []byte {
-	msg := []byte(in.Error())
-	res := make([]byte, len(msg)+1, len(msg)+3)
+func encodeErr(in error) []byte {
+	res := encodeString(in.Error())
 	res[0] = byte(errType)
-
-	for i, b := range msg {
-		res[i+1] = b
-	}
-	if !skipEnding {
-		res = append(res, sep...)
-	}
-
 	return res
 }
 
-func encodeString(in string, skipEnding bool) []byte {
+func encodeString(in string) []byte {
 	msg := []byte(in)
-	res := make([]byte, len(msg)+1, len(msg)+3)
-	res[0] = byte(stringType)
+	l := len(msg)
 
-	for i, b := range msg {
-		res[i+1] = b
-	}
-	if !skipEnding {
-		res = append(res, sep...)
-	}
+	res := make([]byte, l+2, l+3)
+	res[0] = byte(stringType)
+	copy(res[1:], msg)
+	res[l+1] = nl
 
 	return res
 }
 
-func encodeSlice(in []interface{}, skipEnding bool) []byte {
-	size := len(in)
-	length := []byte(fmt.Sprintf("%d", size))
-	res := make([]byte, len(length)+2, 3+len(length)+size*3)
-
+func encodeSlice(in []interface{}) []byte {
+	res := collectionHeader(len(in))
 	res[0] = byte(sliceType)
-	for i, b := range length {
-		res[i+1] = b
-	}
-	res = append(res, '\n')
 
-	for i, v := range in {
-		vals, err := Encode(v, true)
+	for _, v := range in {
+		vals, err := encode(v)
 		if err != nil {
-			return encodeErr(err, false)
+			return encodeErr(err)
 		}
 
 		res = append(res, vals...)
-		if i != size-1 {
-			res = append(res, '\n')
-		}
-	}
-
-	if !skipEnding {
-		res = append(res, sep...)
 	}
 
 	return res
 }
 
-func encodeMap(in map[interface{}]interface{}, skipEnding bool) []byte {
-	size := len(in)
+func collectionHeader(size int) []byte {
 	length := []byte(fmt.Sprintf("%d", size))
-	res := make([]byte, len(length)+2, 3+len(length)+size*3)
+	l := len(length)
 
+	res := make([]byte, l+2, 3+l+size*3)
+	copy(res[1:], length)
+	res[l+1] = nl
+
+	return res
+}
+
+func encodeMap(in map[interface{}]interface{}) []byte {
+	res := collectionHeader(len(in))
 	res[0] = byte(mapType)
-	for i, b := range length {
-		res[i+1] = b
-	}
-	res = append(res, '\n')
 
-	i := 0
 	for k, v := range in {
-		i++
-		key, err := Encode(k, true)
+		key, err := encode(k)
 		if err != nil {
-			return encodeErr(err, false)
+			return encodeErr(err)
 		}
-
 		res = append(res, key...)
-		res = append(res, '\n')
 
-		value, err := Encode(v, true)
+		value, err := encode(v)
 		if err != nil {
-			return encodeErr(err, false)
+			return encodeErr(err)
 		}
-
 		res = append(res, value...)
-		if i != size-1 {
-			res = append(res, '\n')
-		}
-	}
-
-	if !skipEnding {
-		res = append(res, sep...)
 	}
 
 	return res

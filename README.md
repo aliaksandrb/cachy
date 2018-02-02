@@ -7,9 +7,9 @@ Simple implementation of Redis-like in-memory cache.
 ### Desired
 
 - Key-value storage with:
-	- string
-	- lists
-	- dict support
+	- ~~string~~
+	- ~~lists~~
+	- ~~dict support~~
 - Per-key TTL
 - ~~Operations:~~
 	- ~~Get~~
@@ -22,7 +22,7 @@ Simple implementation of Redis-like in-memory cache.
 	- Get value by key from dict
 	- etc
 - Golang API client
-- Telnet-like/HTTP-like API protocol
+- ~~Telnet-like/HTTP-like API protocol~~
 - Tests
 - API spec
 - Deployment docs without full coverage, just a few cases and some examples of telnet/http calls to the server
@@ -30,7 +30,7 @@ Simple implementation of Redis-like in-memory cache.
 ### Optional
 
 - Persistence to disk/db
-- Scaling(on server-side or on client-side, up to you)
+- Scaling (on server-side or on client-side, up to you)
 - Auth
 - Perfomance tests
 
