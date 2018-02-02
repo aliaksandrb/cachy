@@ -66,34 +66,27 @@ func (s *server) handleClient(conn net.Conn) {
 	}
 }
 
-// Decode -> Process -> Encode
 func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
 	msg, err := proto.Decode(buf)
 	if err == io.EOF {
 		return err
 	}
 	if err != nil {
-		return proto.EncodeErr(w, err)
+		return proto.Write(w, err)
 	}
 
 	req, ok := msg.(*proto.Req)
 	if !ok {
 		log.Err("unknown message type: %q", msg)
-		return proto.EncodeUnknownErr(w)
+		return proto.WriteUnknownErr(w)
 	}
 
 	result, err := s.processRequest(req)
 	if err != nil {
-		return proto.EncodeErr(w, err)
+		return proto.Write(w, err)
 	}
 
-	resultEncoded, err := proto.Encode(result, false)
-	if err != nil {
-		return proto.EncodeErr(w, err)
-	}
-
-	_, err = w.Write(resultEncoded)
-	return err
+	return proto.Write(w, result)
 }
 
 type server struct {
@@ -102,6 +95,8 @@ type server struct {
 
 func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
 	log.Info("request: %+v", r)
+
+	log.Info("store: %+v", s.store)
 
 	switch r.Cmd {
 	case proto.CmdGet:

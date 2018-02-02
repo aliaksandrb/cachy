@@ -13,8 +13,3 @@ type Req struct {
 	Value interface{}
 	TTL   time.Duration
 }
-
-type Res struct {
-	Value interface{}
-	// TODO keep in bytes
-}
