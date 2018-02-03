@@ -20,7 +20,8 @@ func Write(w io.Writer, obj interface{}) error {
 	return err
 }
 
-var unknownErrEncoded []byte = append([]byte(ErrUnknown.Error()), cr, nl)
+var errEncoded = append([]byte(ErrUnknown.Error()), cr, nl)
+var unknownErrEncoded = append([]byte{byte(errType)}, errEncoded...)
 
 // WriteUnknownErr writes encoded ErrUnknown to writer w.
 func WriteUnknownErr(w io.Writer) error {

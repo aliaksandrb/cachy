@@ -40,6 +40,8 @@ func encode(obj interface{}) (b []byte, err error) {
 		return encodeString(t), nil
 	case []interface{}:
 		return encodeSlice(t), nil
+	case []string:
+		return encodeStringSlice(t), nil
 	case map[interface{}]interface{}:
 		return encodeMap(t), nil
 	}
@@ -115,6 +117,18 @@ func encodeMap(in map[interface{}]interface{}) []byte {
 			return encodeErr(err)
 		}
 		res = append(res, value...)
+	}
+
+	return res
+}
+
+func encodeStringSlice(in []string) []byte {
+	res := collectionHeader(len(in))
+	res[0] = byte(sliceType)
+
+	for _, v := range in {
+		vals := encodeString(v)
+		res = append(res, vals...)
 	}
 
 	return res
