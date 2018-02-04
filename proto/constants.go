@@ -18,6 +18,22 @@ const (
 	mapType    marker = ':'
 	errType    marker = '!'
 	nilType    marker = '*'
+	intType    marker = '&'
+)
+
+const (
+	ERROR  = '!'
+	STRING = '$'
+	SLICE  = '@'
+	MAP    = ':'
+	NIL    = '*'
+	INT    = '&'
+)
+
+const (
+	NL  = '\n'
+	CR  = '\r'
+	ESC = NL
 )
 
 const (

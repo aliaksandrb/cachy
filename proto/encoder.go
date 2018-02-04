@@ -2,17 +2,31 @@ package proto
 
 import (
 	"fmt"
+	"strconv"
 
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
-// Encoder interface intended for protocol messages encoding.
+// Encoder interface used to encode objects into protocol format.
 type Encoder interface {
-	// Encode dumps obj into encoded byte slice msg.
+	// Encode encodes obj into protocol byte slice b.
 	// It should never panic because of user input.
-	Encode(obj interface{}) (msg []byte, err error)
+	Encode(obj interface{}) (b []byte, err error)
+	// PrepareMessage prepares ready to be send over network message b for provided obj.
+	PrepareMessage(obj interface{}) (b []byte, err error)
 }
 
+// PrepareMessage implements Encoder interface.
+func PrepareMessage(obj interface{}) (b []byte, err error) {
+	b, err = Encode(obj)
+	if err != nil {
+		return
+	}
+
+	return append(b, CR), nil
+}
+
+// Encode implements Encoder interface.
 func Encode(obj interface{}) (b []byte, err error) {
 	defer func() {
 		if e := recover(); e != nil {
@@ -21,115 +35,125 @@ func Encode(obj interface{}) (b []byte, err error) {
 		}
 	}()
 
-	b, err = encode(obj)
-	if err != nil {
-		return b, err
-	}
-
-	b[len(b)-1] = cr
-	return append(b, nl), nil
-}
-
-func encode(obj interface{}) (b []byte, err error) {
 	switch t := obj.(type) {
 	case nil:
 		return encodeNil(), nil
-	case error:
-		return encodeErr(t), nil
 	case string:
 		return encodeString(t), nil
+	case int:
+		return encodeInt(t), nil
 	case []interface{}:
-		return encodeSlice(t), nil
-	case []string:
-		return encodeStringSlice(t), nil
+		return encodeSlice(t)
 	case map[interface{}]interface{}:
-		return encodeMap(t), nil
+		return encodeMap(t)
+	case error:
+		return encodeErr(t), nil
 	}
 
-	log.Err("unknown obj to encode: %v", obj)
+	log.Err("unknown obj type to encode: %T - %q", obj, obj)
 	return nil, ErrUnsupportedType
 }
 
-var nilEnc = []byte{byte(nilType), nl}
+var nilEnc = []byte{NIL}
 
 func encodeNil() []byte {
 	return nilEnc
 }
 
-func encodeErr(in error) []byte {
-	res := encodeString(in.Error())
-	res[0] = byte(errType)
-	return res
-}
+var strEnc = []byte{STRING}
 
 func encodeString(in string) []byte {
-	msg := []byte(in)
-	l := len(msg)
-
-	res := make([]byte, l+2, l+3)
-	res[0] = byte(stringType)
-	copy(res[1:], msg)
-	res[l+1] = nl
-
-	return res
-}
-
-func encodeSlice(in []interface{}) []byte {
-	res := collectionHeader(len(in))
-	res[0] = byte(sliceType)
-
-	for _, v := range in {
-		vals, err := encode(v)
-		if err != nil {
-			return encodeErr(err)
-		}
-
-		res = append(res, vals...)
+	if len(in) == 0 {
+		return strEnc
 	}
 
-	return res
+	return append(strEnc, strconv.QuoteToASCII(in)...)
 }
 
-func collectionHeader(size int) []byte {
-	length := []byte(fmt.Sprintf("%d", size))
-	l := len(length)
+var errEnc = []byte{ERROR}
 
-	res := make([]byte, l+2, 3+l+size*3)
-	copy(res[1:], length)
-	res[l+1] = nl
+func encodeErr(in error) []byte {
+	if in == nil {
+		return errEnc
+	}
 
-	return res
+	msg := in.Error()
+	if msg == "" {
+		return append(errEnc, strconv.QuoteToASCII(ErrUnknown.Error())...)
+	}
+
+	return append(errEnc, strconv.QuoteToASCII(msg)...)
 }
 
-func encodeMap(in map[interface{}]interface{}) []byte {
-	res := collectionHeader(len(in))
-	res[0] = byte(mapType)
+var intEnc = []byte{INT}
+
+func encodeInt(in int) []byte {
+	if in == 0 {
+		return intEnc
+	}
+
+	return append(intEnc, intToBytes(in)...)
+}
+
+var sliceEnc = []byte{SLICE}
+
+func encodeSlice(in []interface{}) ([]byte, error) {
+	if in == nil {
+		return sliceEnc, nil
+	}
+
+	b := append(sliceEnc, intToBytes(len(in))...)
+
+	if len(in) == 0 {
+		return b, nil
+	}
+
+	for _, v := range in {
+		b = append(b, ESC)
+
+		encoded, err := Encode(v)
+		if err != nil {
+			return nil, err
+		}
+
+		b = append(b, encoded...)
+	}
+
+	return b, nil
+}
+
+func intToBytes(i int) []byte {
+	return []byte(fmt.Sprintf("%d", i))
+}
+
+var mapEnc = []byte{MAP}
+
+func encodeMap(in map[interface{}]interface{}) ([]byte, error) {
+	if in == nil {
+		return mapEnc, nil
+	}
+
+	b := append(mapEnc, intToBytes(len(in))...)
+
+	if len(in) == 0 {
+		return b, nil
+	}
 
 	for k, v := range in {
-		key, err := encode(k)
+		b = append(b, ESC)
+		key, err := Encode(k)
 		if err != nil {
-			return encodeErr(err)
+			return nil, err
 		}
-		res = append(res, key...)
+		b = append(b, key...)
 
-		value, err := encode(v)
+		b = append(b, ESC)
+		val, err := Encode(v)
 		if err != nil {
-			return encodeErr(err)
+			return nil, err
 		}
-		res = append(res, value...)
+		b = append(b, val...)
 	}
 
-	return res
-}
-
-func encodeStringSlice(in []string) []byte {
-	res := collectionHeader(len(in))
-	res[0] = byte(sliceType)
-
-	for _, v := range in {
-		vals := encodeString(v)
-		res = append(res, vals...)
-	}
-
-	return res
+	return b, nil
 }

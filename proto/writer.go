@@ -11,7 +11,7 @@ type Writer interface {
 
 // Write implements Writer interface.
 func Write(w io.Writer, obj interface{}) error {
-	encoded, err := Encode(obj)
+	encoded, err := PrepareMessage(obj)
 	if err != nil {
 		return WriteUnknownErr(w)
 	}
@@ -20,11 +20,17 @@ func Write(w io.Writer, obj interface{}) error {
 	return err
 }
 
-var errEncoded = append([]byte(ErrUnknown.Error()), cr, nl)
-var unknownErrEncoded = append([]byte{byte(errType)}, errEncoded...)
+var unknownErrEncoded = makeErrEncoded()
 
 // WriteUnknownErr writes encoded ErrUnknown to writer w.
 func WriteUnknownErr(w io.Writer) error {
 	_, err := w.Write(unknownErrEncoded)
 	return err
+}
+
+func makeErrEncoded() []byte {
+	b := []byte{byte(errType)}
+	b = append(b, []byte(ErrUnknown.Error())...)
+	b = append(b, cr, nl)
+	return b
 }
