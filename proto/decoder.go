@@ -10,64 +10,33 @@ import (
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
-// BytesReader interface used for per-byte reading.
-type BytesReader interface {
-	// ReadBytes reads until the first occurrence of \n or \r in the underlaying reader in s.
-	ReadBytes(s *bufio.Scanner) (b []byte, err error)
-}
-
-// ReadBytes scans s until first occurance of \n or \r and returns
-// the byte slice of data being scanned.
-func ReadBytes(s *bufio.Scanner) (b []byte, err error) {
-	b = make([]byte, 0, 1)
-	var read []byte
-
-	for s.Scan() {
-		read = s.Bytes()
-		if len(read) == 0 || read[0] == NL || read[0] == CR {
-			break
-		}
-		b = append(b, read[0])
-	}
-	if err := s.Err(); err != nil {
-		return b, err
-	}
-
-	return b, nil
-}
-
-var onInput = func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if len(data) != 0 && data[0] == CR {
-		return 0, data, bufio.ErrFinalToken
-	}
-
-	return bufio.ScanBytes(data, atEOF)
-}
-
 // Decoder interface used to decode protocol format into runtime objects.
 type Decoder interface {
 	// Decode reads from buffer buf and returns decoded obj and error err if any.
 	// It should never panic because of user input.
 	Decode(buf *bufio.Reader) (obj interface{}, err error)
+	//DecodeMessage decodes incomming messages into value m. Shared between server and client.
+	// It should never panic because of user input.
+	DecodeMessage(buf *bufio.Reader) (m interface{}, err error)
 }
 
 // Decode implements Decoder interface.
-func DecodeMessage(buf *bufio.Reader) (obj interface{}, err error) {
+func DecodeMessage(buf *bufio.Reader) (m interface{}, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Err("unknown decoding error: %v", e)
-			obj, err = nil, ErrUnknown
+			err = ErrUnknown
 		}
 	}()
 
 	b, err := buf.Peek(1)
-	if err != nil {
-		if err == io.EOF {
-			log.Err("end of client")
-			return nil, err
-		}
+	if err == io.EOF {
+		log.Err("end of client")
+		return nil, err
+	}
 
-		log.Err("unable to read first byte from message: %v", err)
+	if err != nil {
+		log.Err("unable to read first byte of message: %v", err)
 		return nil, ErrBadMsg
 	}
 
@@ -84,7 +53,7 @@ func msgKindByMarker(m byte) (mk byte, err error) {
 	switch m {
 	case CmdGet, CmdSet, CmdUpdate, CmdRemove, CmdKeys:
 		return KindReq, nil
-	case STRING, SLICE, MAP, ERROR, NIL:
+	case STRING, INT, SLICE, MAP, ERROR, NIL:
 		return KindRes, nil
 	}
 
@@ -92,27 +61,20 @@ func msgKindByMarker(m byte) (mk byte, err error) {
 	return mk, ErrUnsupportedCmd
 }
 
-func NewScanner(r io.Reader) *bufio.Scanner {
-	s := bufio.NewScanner(r)
-	s.Split(onInput)
-	return s
-}
-
 func decode(buf *bufio.Reader, mk byte, m byte) (obj interface{}, err error) {
 	s := NewScanner(buf)
+
 	if mk == KindReq {
 		return decodeReq(s, m)
 	}
 
-	return decodeRes(s)
+	return Decode(s)
 }
 
 func decodeReq(s *bufio.Scanner, m byte) (req *Req, err error) {
 	req = &Req{
 		Cmd: m,
 	}
-
-	log.Info("decodeReq: %q", m)
 
 	b, err := ReadBytes(s)
 	if err != nil || len(b) == 0 {
@@ -133,17 +95,48 @@ func decodeReq(s *bufio.Scanner, m byte) (req *Req, err error) {
 	return nil, ErrUnsupportedCmd
 }
 
-func assignReqKey(s *bufio.Scanner, req *Req, d byte) error {
-	// TODO decode key?
+func reqWithoutValue(s *bufio.Scanner, req *Req) (*Req, error) {
+	err := assignReqKey(s, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, err
+}
+
+func assignReqKey(s *bufio.Scanner, req *Req) error {
 	b, err := ReadBytes(s)
 	if err != nil {
 		log.Err("unable to decode message key: %v", err)
 		return ErrBadMsg
 	}
 
+	if len(b) == 0 {
+		log.Err("unable to decode messge key: %v", b)
+		return ErrBadMsg
+	}
+
 	req.Key = string(b)
 
 	return nil
+}
+
+func reqWithValue(s *bufio.Scanner, req *Req) (*Req, error) {
+	var err error
+
+	if err = assignReqKey(s, req); err != nil {
+		return nil, err
+	}
+
+	if err = assignReqValue(s, req); err != nil {
+		return nil, err
+	}
+
+	if err = assignReqTTL(s, req); err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 func assignReqValue(s *bufio.Scanner, req *Req) error {
@@ -155,38 +148,6 @@ func assignReqValue(s *bufio.Scanner, req *Req) error {
 	req.Value = val
 
 	return nil
-}
-
-func reqWithoutValue(s *bufio.Scanner, req *Req) (*Req, error) {
-	err := assignReqKey(s, req, CR)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, err
-}
-
-func reqWithValue(s *bufio.Scanner, req *Req) (*Req, error) {
-	var err error
-	log.Info("reqWithValue1: %+v", req)
-
-	if err = assignReqKey(s, req, NL); err != nil {
-		return nil, err
-	}
-
-	log.Info("reqWithValue2: %+v", req)
-
-	if err = assignReqValue(s, req); err != nil {
-		return nil, err
-	}
-
-	log.Info("reqWithValue3: %+v", req)
-	if err = assignReqTTL(s, req); err != nil {
-		return nil, err
-	}
-	log.Info("reqWithValue4: %+v", req)
-
-	return req, nil
 }
 
 func assignReqTTL(s *bufio.Scanner, req *Req) error {
@@ -204,17 +165,6 @@ func assignReqTTL(s *bufio.Scanner, req *Req) error {
 	req.TTL = ttl
 
 	return nil
-}
-
-func decodeRes(s *bufio.Scanner) (obj interface{}, err error) {
-	log.Info("decodeRes")
-
-	obj, err = Decode(s)
-	if err != nil {
-		return nil, err
-	}
-
-	return obj, nil
 }
 
 func Decode(s *bufio.Scanner) (interface{}, error) {
@@ -264,14 +214,13 @@ func decodeInt(b []byte) (i int, err error) {
 }
 
 func decodeNil(s *bufio.Scanner) error {
-	log.Info("decode nil")
 	b, err := ReadBytes(s)
-	log.Info("decode nil %q - %d - %v", b, len(b), err)
-	if err != nil { // || len(b) != 1 || (b[0] != nl && b[0] != cr) {
+
+	if err != nil {
 		log.Err("unable to decode nil: %q, err: %v", b, err)
 		return ErrBadMsg
 	}
-	log.Info("decodeNil success")
+
 	return nil
 }
 
@@ -392,4 +341,44 @@ func bytesToDuration(b []byte) (t time.Duration, err error) {
 	}
 
 	return time.Duration(ttl), nil
+}
+
+func NewScanner(r io.Reader) *bufio.Scanner {
+	s := bufio.NewScanner(r)
+	s.Split(onInput)
+	return s
+}
+
+// BytesReader interface for per-byte reading.
+type BytesReader interface {
+	// ReadBytes reads until the first occurrence of \n or \r in the underlaying reader in s.
+	ReadBytes(s *bufio.Scanner) (b []byte, err error)
+}
+
+// ReadBytes scans s until first occurance of \n or \r and returns
+// the byte slice of data being scanned.
+func ReadBytes(s *bufio.Scanner) (b []byte, err error) {
+	b = make([]byte, 0, 1)
+	var read []byte
+
+	for s.Scan() {
+		read = s.Bytes()
+		if len(read) == 0 || read[0] == NL || read[0] == CR {
+			break
+		}
+		b = append(b, read[0])
+	}
+	if err := s.Err(); err != nil {
+		return b, err
+	}
+
+	return b, nil
+}
+
+var onInput = func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if len(data) != 0 && data[0] == CR {
+		return 0, data, bufio.ErrFinalToken
+	}
+
+	return bufio.ScanBytes(data, atEOF)
 }

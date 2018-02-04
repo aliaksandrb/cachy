@@ -94,11 +94,6 @@ type server struct {
 }
 
 func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
-	log.Info("request: %+v", r)
-
-	// TODO remove me!
-	log.Info("store: %+v", s.store)
-
 	switch r.Cmd {
 	case proto.CmdGet:
 		v, _, err := s.store.Get(r.Key)
@@ -110,7 +105,6 @@ func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
 	case proto.CmdRemove:
 		return nil, s.store.Remove(r.Key)
 	case proto.CmdKeys:
-		log.Info("process keys: %q", r)
 		return s.store.Keys(), nil
 	}
 

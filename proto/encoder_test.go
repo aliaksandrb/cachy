@@ -116,6 +116,7 @@ func TestEncode(t *testing.T) {
 		got, err := Encode(tc.in)
 		if err != nil {
 			t.Errorf("[%d] unable to encode, error: %v", i, err)
+			continue
 		}
 
 		_, ok := tc.in.(map[interface{}]interface{})
@@ -123,13 +124,17 @@ func TestEncode(t *testing.T) {
 			// Special case for randomized map keys, have no better idea now.
 			g := make([]byte, len(got))
 			copy(g, got)
+			sort.Slice(g, func(i, j int) bool { return g[i] < g[j] })
+
 			w := make([]byte, len(tc.want))
 			copy(w, tc.want)
-			sort.Slice(g, func(i, j int) bool { return g[i] < g[j] })
 			sort.Slice(w, func(i, j int) bool { return w[i] < w[j] })
-			if !bytes.Equal(got, tc.want) {
+
+			if !bytes.Equal(w, w) {
 				t.Errorf("[%d] %s: got %q, want %q", i, tc.desc, g, w)
 			}
+
+			continue
 		}
 
 		if !bytes.Equal(got, tc.want) {
@@ -256,12 +261,14 @@ func TestEncodeDecode(t *testing.T) {
 		encoded, err := Encode(tc.in)
 		if err != nil {
 			t.Errorf("[%d] unable to encode, error: %v", i, err)
+			continue
 		}
 
 		r := bytes.NewReader(encoded)
 		decoded, err := Decode(NewScanner(r))
 		if err != nil {
 			t.Errorf("[%d] unable to decode, input: %q, error: %v", i, encoded, err)
+			continue
 		}
 
 		if !reflect.DeepEqual(decoded, tc.in) {

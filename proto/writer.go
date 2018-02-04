@@ -29,8 +29,5 @@ func WriteUnknownErr(w io.Writer) error {
 }
 
 func makeErrEncoded() []byte {
-	b := []byte{ERROR}
-	b = append(b, []byte(ErrUnknown.Error())...)
-	b = append(b, CR, NL)
-	return b
+	return encodeErr(ErrUnknown)
 }

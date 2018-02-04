@@ -1,10 +1,12 @@
 package proto
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestDecode(t *testing.T) {
@@ -117,6 +119,7 @@ func TestDecode(t *testing.T) {
 		got, err := Decode(NewScanner(r))
 		if err != nil {
 			t.Errorf("[%d] unable to decode, input: %q, error: %v", i, tc.in, err)
+			continue
 		}
 
 		if !reflect.DeepEqual(got, tc.want) {
@@ -139,9 +142,130 @@ func TestDecodeUnsupported(t *testing.T) {
 	}
 }
 
-//func TestDecodeMessage(t *testing.T) {
-//	msg, payload, _ := DecodeMessage([]byte("+key\n$val\\nue\nk"))
-//	if want := []byte("&123\r"); !bytes.Equal(b, want) {
-//		t.Errorf("should match format, got %q, want %q", b, want)
-//	}
-//}
+func TestDecodeReqMessage(t *testing.T) {
+	for i, tc := range []struct {
+		in   []byte
+		want Req
+		desc string
+	}{
+		{
+			in: []byte("+\nkey\n$\"value\"\n0\r"),
+			want: Req{
+				Cmd:   CmdSet,
+				Key:   "key",
+				Value: "value",
+				TTL:   time.Duration(0),
+			},
+			desc: "add simple string",
+		}, {
+			in: []byte("^\nkey\n@1\n$\"value\"\n100\r"),
+			want: Req{
+				Cmd:   CmdUpdate,
+				Key:   "key",
+				Value: []interface{}{"value"},
+				TTL:   time.Duration(100),
+			},
+			desc: "update slice",
+		}, {
+			in: []byte("+\nkey\n:2\n$\"key1\"\n$\"value1\"\n$\"key2\"\n$\"value2\"\n100\r"),
+			want: Req{
+				Cmd:   CmdSet,
+				Key:   "key",
+				Value: map[interface{}]interface{}{"key1": "value1", "key2": "value2"},
+				TTL:   time.Duration(100),
+			},
+			desc: "add map with few elements",
+		}, {
+			in: []byte("#\nkey\r"),
+			want: Req{
+				Cmd: CmdGet,
+				Key: "key",
+			},
+			desc: "get by key",
+		}, {
+			in: []byte("-\nkey\r"),
+			want: Req{
+				Cmd: CmdRemove,
+				Key: "key",
+			},
+			desc: "remove by key",
+		}, {
+			in: []byte("~\r"),
+			want: Req{
+				Cmd: CmdKeys,
+			},
+			desc: "keys",
+		},
+	} {
+		r := bytes.NewReader(tc.in)
+		got, err := DecodeMessage(bufio.NewReader(r))
+		if err != nil {
+			t.Errorf("[%d] unable to decode, input: %q, error: %v", i, tc.in, err)
+			continue
+		}
+
+		obj, ok := got.(*Req)
+		if !ok {
+			t.Errorf("[%d] message should be Req, got: %q", i, got)
+			continue
+		}
+
+		if !reflect.DeepEqual(*obj, tc.want) {
+			t.Errorf("[%d] %s: got %q, want %q", i, tc.desc, got, tc.want)
+		}
+	}
+}
+
+func TestDecodeValueMessage(t *testing.T) {
+	in := []byte("$\"kermit\"")
+	r := bytes.NewReader(in)
+	got, err := DecodeMessage(bufio.NewReader(r))
+	if err != nil {
+		t.Errorf("unable to decode, input: %q, error: %v", in, err)
+	}
+
+	obj, ok := got.(string)
+	if !ok {
+		t.Errorf("message should be string, got: %q", got)
+	}
+
+	if obj != "kermit" {
+		t.Errorf("should be value, got %q, want %q", obj, "kermit")
+	}
+}
+
+func TestDecodeInvalidMessage(t *testing.T) {
+	for i, tc := range []struct {
+		in   []byte
+		want error
+		desc string
+	}{
+		{
+			in:   []byte("\r"),
+			want: ErrUnknown,
+			desc: "empty",
+		}, {
+			in:   []byte(">\nkey\n@1\n$\"value\"\n100\r"),
+			want: ErrBadMsg,
+			desc: "unknown type",
+		}, {
+			in:   []byte(""),
+			want: ErrUnknown,
+			desc: "nully",
+		}, {
+			in:   []byte("#key\r"),
+			want: ErrBadMsg,
+			desc: "malformed command",
+		}, {
+			in:   []byte("$hi\r"),
+			want: ErrBadMsg,
+			desc: "malformed value",
+		},
+	} {
+		r := bytes.NewReader(tc.in)
+		got, err := DecodeMessage(bufio.NewReader(r))
+		if err == nil {
+			t.Errorf("[%d] should fail for malformed messages, input: %q, got: %+v, want: %v", i, tc.in, got, tc.want)
+		}
+	}
+}
