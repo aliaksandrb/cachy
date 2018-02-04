@@ -6,7 +6,7 @@ type Request interface {
 }
 
 type Req struct {
-	Cmd marker
+	Cmd byte
 	// TODO keep in bytes
 	Key string
 	// TODO keep in bytes

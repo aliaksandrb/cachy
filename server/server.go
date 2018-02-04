@@ -67,7 +67,7 @@ func (s *server) handleClient(conn net.Conn) {
 }
 
 func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
-	msg, err := proto.Decode(buf)
+	msg, err := proto.DecodeMessage(buf)
 	if err == io.EOF {
 		return err
 	}

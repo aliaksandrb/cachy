@@ -7,7 +7,7 @@ import (
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
-// Encoder interface used to encode objects into protocol format.
+// Encoder interface used to encode runtime objects into protocol format.
 type Encoder interface {
 	// Encode encodes obj into protocol byte slice b.
 	// It should never panic because of user input.

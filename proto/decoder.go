@@ -24,7 +24,7 @@ func ReadBytes(s *bufio.Scanner) (b []byte, err error) {
 
 	for s.Scan() {
 		read = s.Bytes()
-		if len(read) == 0 || read[0] == nl || read[0] == cr {
+		if len(read) == 0 || read[0] == NL || read[0] == CR {
 			break
 		}
 		b = append(b, read[0])
@@ -37,14 +37,14 @@ func ReadBytes(s *bufio.Scanner) (b []byte, err error) {
 }
 
 var onInput = func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if len(data) != 0 && data[0] == cr {
+	if len(data) != 0 && data[0] == CR {
 		return 0, data, bufio.ErrFinalToken
 	}
 
 	return bufio.ScanBytes(data, atEOF)
 }
 
-// Decoder interface intended for protocol messages parsing.
+// Decoder interface used to decode protocol format into runtime objects.
 type Decoder interface {
 	// Decode reads from buffer buf and returns decoded obj and error err if any.
 	// It should never panic because of user input.
@@ -52,7 +52,7 @@ type Decoder interface {
 }
 
 // Decode implements Decoder interface.
-func Decode(buf *bufio.Reader) (obj interface{}, err error) {
+func DecodeMessage(buf *bufio.Reader) (obj interface{}, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Err("unknown decoding error: %v", e)
@@ -71,7 +71,7 @@ func Decode(buf *bufio.Reader) (obj interface{}, err error) {
 		return nil, ErrBadMsg
 	}
 
-	marker := marker(b[0])
+	marker := b[0]
 	mk, err := msgKindByMarker(marker)
 	if err != nil {
 		return nil, err
@@ -80,30 +80,34 @@ func Decode(buf *bufio.Reader) (obj interface{}, err error) {
 	return decode(buf, mk, marker)
 }
 
-func msgKindByMarker(m marker) (mk msgKind, err error) {
+func msgKindByMarker(m byte) (mk byte, err error) {
 	switch m {
 	case CmdGet, CmdSet, CmdUpdate, CmdRemove, CmdKeys:
-		return kindReq, nil
-	case stringType, sliceType, mapType, errType, nilType:
-		return kindRes, nil
+		return KindReq, nil
+	case STRING, SLICE, MAP, ERROR, NIL:
+		return KindRes, nil
 	}
 
 	log.Err("unknown first byte marker: %q", m)
 	return mk, ErrUnsupportedCmd
 }
 
-func decode(buf *bufio.Reader, mk msgKind, m marker) (obj interface{}, err error) {
-	s := bufio.NewScanner(buf)
+func NewScanner(r io.Reader) *bufio.Scanner {
+	s := bufio.NewScanner(r)
 	s.Split(onInput)
+	return s
+}
 
-	if mk == kindReq {
+func decode(buf *bufio.Reader, mk byte, m byte) (obj interface{}, err error) {
+	s := NewScanner(buf)
+	if mk == KindReq {
 		return decodeReq(s, m)
 	}
 
 	return decodeRes(s)
 }
 
-func decodeReq(s *bufio.Scanner, m marker) (req *Req, err error) {
+func decodeReq(s *bufio.Scanner, m byte) (req *Req, err error) {
 	req = &Req{
 		Cmd: m,
 	}
@@ -143,7 +147,7 @@ func assignReqKey(s *bufio.Scanner, req *Req, d byte) error {
 }
 
 func assignReqValue(s *bufio.Scanner, req *Req) error {
-	val, err := decodeValue(s)
+	val, err := Decode(s)
 	if err != nil {
 		return err
 	}
@@ -154,7 +158,7 @@ func assignReqValue(s *bufio.Scanner, req *Req) error {
 }
 
 func reqWithoutValue(s *bufio.Scanner, req *Req) (*Req, error) {
-	err := assignReqKey(s, req, cr)
+	err := assignReqKey(s, req, CR)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +170,7 @@ func reqWithValue(s *bufio.Scanner, req *Req) (*Req, error) {
 	var err error
 	log.Info("reqWithValue1: %+v", req)
 
-	if err = assignReqKey(s, req, nl); err != nil {
+	if err = assignReqKey(s, req, NL); err != nil {
 		return nil, err
 	}
 
@@ -205,7 +209,7 @@ func assignReqTTL(s *bufio.Scanner, req *Req) error {
 func decodeRes(s *bufio.Scanner) (obj interface{}, err error) {
 	log.Info("decodeRes")
 
-	obj, err = decodeValue(s)
+	obj, err = Decode(s)
 	if err != nil {
 		return nil, err
 	}
@@ -213,57 +217,66 @@ func decodeRes(s *bufio.Scanner) (obj interface{}, err error) {
 	return obj, nil
 }
 
-func decodeValue(s *bufio.Scanner) (interface{}, error) {
-	log.Info("decodeValue")
+func Decode(s *bufio.Scanner) (interface{}, error) {
 	b, err := ReadBytes(s)
 	if err != nil {
 		return nil, err
 	}
+
 	if len(b) == 0 {
-		log.Err("empty value marker: %q", b)
+		log.Err("empty or malformed payload: %q", b)
 		return nil, ErrBadMsg
 	}
 
-	log.Info("switch %q - %q", b, b[0])
-	switch marker(b[0]) {
-	case stringType:
-		return decodeString(s)
-	case nilType:
+	switch b[0] {
+	case STRING:
+		return decodeString(b)
+	case INT:
+		return decodeInt(b)
+	case NIL:
 		return nil, decodeNil(s)
-	case sliceType:
-		return decodeSlice(s)
-	case mapType:
-		return decodeMap(s)
-	case errType:
-		return decodeErr(s)
+	case SLICE:
+		return decodeSlice(b, s)
+	case MAP:
+		return decodeMap(b, s)
+	case ERROR:
+		return decodeErr(b)
 	}
 
-	log.Err("unsupported message type: %q", b)
+	log.Err("unsupported payload type: %q", b)
 	return nil, ErrUnsupportedType
 }
 
-func decodeString(s *bufio.Scanner) (string, error) {
-	log.Info("decodeString")
-	b, err := ReadBytes(s)
-	if err != nil {
-		return "", err
+func decodeString(b []byte) (s string, err error) {
+	if len(b) == 1 {
+		return
 	}
 
-	log.Info("decodeString: %q", b)
-	return string(b), nil
+	return strconv.Unquote(string(b[1:]))
+}
+
+func decodeInt(b []byte) (i int, err error) {
+	if len(b) == 1 {
+		return
+	}
+
+	return decodeSize(b[1:])
 }
 
 func decodeNil(s *bufio.Scanner) error {
+	log.Info("decode nil")
 	b, err := ReadBytes(s)
-	if err != nil || (len(b) != 1 && b[0] != nl && b[0] != cr) {
+	log.Info("decode nil %q - %d - %v", b, len(b), err)
+	if err != nil { // || len(b) != 1 || (b[0] != nl && b[0] != cr) {
 		log.Err("unable to decode nil: %q, err: %v", b, err)
 		return ErrBadMsg
 	}
+	log.Info("decodeNil success")
 	return nil
 }
 
-func decodeErr(s *bufio.Scanner) (error, error) {
-	str, err := decodeString(s)
+func decodeErr(b []byte) (error, error) {
+	str, err := decodeString(b)
 	if err != nil {
 		return nil, err
 	}
@@ -272,62 +285,73 @@ func decodeErr(s *bufio.Scanner) (error, error) {
 		return ErrBadMsg, nil
 	}
 
-	// TODO check other errors too
-	if str == ErrUnsupportedType.Error() {
+	switch str {
+	case ErrUnsupportedType.Error():
 		return ErrUnsupportedType, nil
+	case ErrUnsupportedCmd.Error():
+		return ErrUnsupportedCmd, nil
+	case ErrBadMsg.Error():
+		return ErrBadMsg, nil
+	case ErrBadDelimiter.Error():
+		return ErrBadDelimiter, nil
+	case ErrUnknown.Error():
+		return ErrUnknown, nil
 	}
 
 	return errors.New(str), nil
 }
 
-func decodeSlice(s *bufio.Scanner) (list []interface{}, err error) {
-	size, err := decodeSize(s)
+func decodeSlice(head []byte, s *bufio.Scanner) (slice []interface{}, err error) {
+	if len(head) == 1 {
+		return
+	}
+
+	size, err := decodeSize(head[1:])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	if size == 0 {
-		return list, nil
+		return []interface{}{}, nil
 	}
 
-	list = make([]interface{}, 0, size)
+	slice = make([]interface{}, 0, size)
 
 	for i := 0; i < size; i++ {
-		v, err := decodeValue(s)
+		v, err := Decode(s)
 		if err != nil {
 			return nil, err
 		}
 
-		list = append(list, v)
+		slice = append(slice, v)
 	}
 
-	return list, nil
+	return
 }
 
-func decodeSize(s *bufio.Scanner) (size int, err error) {
-	b, err := ReadBytes(s)
-	if err != nil {
-		log.Err("unable to decode size: %q, error: %v", b, err)
-		return 0, ErrBadMsg
-	}
-
+func decodeSize(b []byte) (size int, err error) {
+	// TODO better way
 	size, err = strconv.Atoi(string(b))
 	if err != nil {
-		log.Err("unable to convert size from string to int: %q, error: %v", b, err)
+		log.Err("unable to convert size from bytes to int: %q, error: %v", b, err)
 		return 0, ErrBadMsg
 	}
 
-	return size, nil
+	return
 }
 
-func decodeMap(s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
-	size, err := decodeSize(s)
+func decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
+	if len(head) == 1 {
+		return
+	}
+
+	size, err := decodeSize(head[1:])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	if size == 0 {
-		return dict, nil
+		return make(map[interface{}]interface{}, 0), nil
 	}
 
 	dict = make(map[interface{}]interface{}, size)
@@ -336,7 +360,7 @@ func decodeMap(s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
 	var assign bool
 
 	for i := 0; i < size*2; i++ {
-		v, err := decodeValue(s)
+		v, err := Decode(s)
 		if err != nil {
 			return nil, err
 		}
@@ -355,8 +379,7 @@ func decodeMap(s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
 }
 
 func bytesToDuration(b []byte) (t time.Duration, err error) {
-	// TODO better way
-	ttl, err := strconv.Atoi(string(b))
+	ttl, err := decodeSize(b)
 	if err != nil {
 		log.Err("bad ttl format: %v", err)
 		return

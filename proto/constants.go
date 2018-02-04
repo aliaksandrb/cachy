@@ -1,26 +1,16 @@
 package proto
 
-type marker byte
-
-// Command types.
+// Supported commands.
 const (
-	CmdGet    marker = '#'
-	CmdSet    marker = '+'
-	CmdUpdate marker = '^'
-	CmdRemove marker = '-'
-	CmdKeys   marker = '~'
+	CmdGet    = '#'
+	CmdSet    = '+'
+	CmdUpdate = '^'
+	CmdRemove = '-'
+	CmdKeys   = '~'
+	CmdValue  = '.'
 )
 
-// Data types.
-const (
-	stringType marker = '$'
-	sliceType  marker = '@'
-	mapType    marker = ':'
-	errType    marker = '!'
-	nilType    marker = '*'
-	intType    marker = '&'
-)
-
+// Supported datatypes.
 const (
 	ERROR  = '!'
 	STRING = '$'
@@ -30,20 +20,15 @@ const (
 	INT    = '&'
 )
 
+// Escape chars.
 const (
 	NL  = '\n'
 	CR  = '\r'
 	ESC = NL
 )
 
+// Message types.
 const (
-	nl byte = '\n'
-	cr byte = '\r'
-)
-
-type msgKind byte
-
-const (
-	kindReq msgKind = iota
-	kindRes
+	KindReq byte = iota
+	KindRes
 )
