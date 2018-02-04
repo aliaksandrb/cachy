@@ -44,6 +44,8 @@ func Encode(obj interface{}) (b []byte, err error) {
 		return encodeInt(t), nil
 	case []interface{}:
 		return encodeSlice(t)
+	case []string:
+		return encodeStringSlice(t)
 	case map[interface{}]interface{}:
 		return encodeMap(t)
 	case error:
@@ -92,7 +94,7 @@ func encodeInt(in int) []byte {
 		return intEnc
 	}
 
-	return append(intEnc, intToBytes(in)...)
+	return append(intEnc, IntToBytes(in)...)
 }
 
 var sliceEnc = []byte{SLICE}
@@ -102,7 +104,7 @@ func encodeSlice(in []interface{}) ([]byte, error) {
 		return sliceEnc, nil
 	}
 
-	b := append(sliceEnc, intToBytes(len(in))...)
+	b := append(sliceEnc, IntToBytes(len(in))...)
 
 	if len(in) == 0 {
 		return b, nil
@@ -122,7 +124,17 @@ func encodeSlice(in []interface{}) ([]byte, error) {
 	return b, nil
 }
 
-func intToBytes(i int) []byte {
+func encodeStringSlice(in []string) ([]byte, error) {
+	slice := make([]interface{}, len(in))
+	for i, v := range in {
+		slice[i] = v
+	}
+
+	return encodeSlice(slice)
+}
+
+func IntToBytes(i int) []byte {
+	//TODO strconv
 	return []byte(fmt.Sprintf("%d", i))
 }
 
@@ -133,7 +145,7 @@ func encodeMap(in map[interface{}]interface{}) ([]byte, error) {
 		return mapEnc, nil
 	}
 
-	b := append(mapEnc, intToBytes(len(in))...)
+	b := append(mapEnc, IntToBytes(len(in))...)
 
 	if len(in) == 0 {
 		return b, nil

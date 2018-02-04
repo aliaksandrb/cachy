@@ -2,6 +2,7 @@ package proto
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"io"
 	"strconv"
@@ -18,6 +19,15 @@ type Decoder interface {
 	//DecodeMessage decodes incomming messages into value m. Shared between server and client.
 	// It should never panic because of user input.
 	DecodeMessage(buf *bufio.Reader) (m interface{}, err error)
+}
+
+func NewResponseScanner(r io.Reader) (*bufio.Scanner, error) {
+	b, err := bufio.NewReader(r).ReadBytes(CR)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewScanner(bytes.NewReader(b)), nil
 }
 
 // Decode implements Decoder interface.

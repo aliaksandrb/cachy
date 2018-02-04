@@ -7,7 +7,6 @@ const (
 	CmdUpdate = '^'
 	CmdRemove = '-'
 	CmdKeys   = '~'
-	CmdValue  = '.'
 )
 
 // Supported datatypes.
