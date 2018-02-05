@@ -4,6 +4,11 @@ import (
 	"bufio"
 	"io"
 	"net"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/aliaksandrb/cachy/proto"
 	"github.com/aliaksandrb/cachy/store"
@@ -11,38 +16,102 @@ import (
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
-func Run(st store.Type, p string, service string) (err error) {
-	tcpAddr, err := net.ResolveTCPAddr(p, service)
+type Server interface {
+	Stop() error
+}
+
+func Run(s store.Type, addr string) (Server, error) {
+	listener, err := makeListener(addr)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	listener, err := net.ListenTCP("tcp", tcpAddr)
+	server, err := New(s, listener)
 	if err != nil {
-		return
+		return nil, err
 	}
-	defer listener.Close()
 
-	dbStore, err := store.New(st)
-	if err != nil {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-signals
+		log.Info("shutdown")
+		server.Stop()
+	}()
+
+	log.Info("server started on %s ...", addr)
+	go server.start()
+
+	return server, nil
+}
+
+func (s *server) Stop() error {
+	log.Info("stoping server gracefully...")
+
+	close(s.closing)
+
+	select {
+	case <-s.syncClients():
+	case <-time.After(10 * time.Second):
+		log.Info("timeouted, killing...")
+	}
+
+	if err := s.listener.Close(); err != nil {
 		return err
 	}
 
-	// TODO double server run?
-	s := &server{store: dbStore}
-	log.Info("new server is running on %s localhost%s\n", p, service)
+	log.Info("stoping server, done.")
+	return nil
+}
 
-	for {
-		client, err := listener.Accept()
-		if err != nil {
-			log.Err("client connection error: %v", err)
-			continue
-		}
+func (s *server) syncClients() chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		s.clients.Wait()
+		close(done)
+	}()
 
-		go s.handleClient(client)
+	return done
+}
+
+func New(s store.Type, l *net.TCPListener) (*server, error) {
+	db, err := store.New(s)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return &server{
+		store:    db,
+		listener: l,
+		closing:  make(chan struct{}, 1),
+		clients:  &sync.WaitGroup{},
+	}, nil
+}
+
+type server struct {
+	store    store.Store
+	listener *net.TCPListener
+	closing  chan struct{}
+	clients  *sync.WaitGroup
+}
+
+func (s *server) start() {
+	for {
+		select {
+		case <-s.closing:
+			return
+		default:
+			client, err := s.listener.Accept()
+			if err != nil {
+				log.Err("client connection error: %v", err)
+				continue
+			}
+
+			s.clients.Add(1)
+			go s.handleClient(client)
+		}
+	}
 }
 
 func (s *server) handleClient(conn net.Conn) {
@@ -51,18 +120,25 @@ func (s *server) handleClient(conn net.Conn) {
 			log.Err("handle client error: %v", err)
 		}
 	}()
+	defer s.clients.Done()
 	defer conn.Close()
+
 	log.Info("new client connected: %+v", conn.RemoteAddr())
 
 	var err error
 	reader := bufio.NewReader(conn)
 
 	for {
-		if err = s.handleMessage(reader, conn); err != nil {
-			log.Info("closing a client: %+v", conn.RemoteAddr())
+		select {
+		case <-s.closing:
 			return
+		default:
+			if err = s.handleMessage(reader, conn); err != nil {
+				log.Info("closing a client: %+v", conn.RemoteAddr())
+				return
+			}
+			reader.Reset(conn)
 		}
-		reader.Reset(conn)
 	}
 }
 
@@ -89,10 +165,6 @@ func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
 	return proto.Write(w, result)
 }
 
-type server struct {
-	store store.Store
-}
-
 func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
 	switch r.Cmd {
 	case proto.CmdGet:
@@ -109,4 +181,13 @@ func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
 	}
 
 	return nil, proto.ErrUnknown
+}
+
+func makeListener(addr string) (*net.TCPListener, error) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return net.ListenTCP("tcp", tcpAddr)
 }

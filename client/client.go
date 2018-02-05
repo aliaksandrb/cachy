@@ -17,19 +17,21 @@ type Client interface {
 	Update(key string, val interface{}, ttl time.Duration) error
 	Remove(key string) error
 	Keys() ([]string, error)
-	Close() error
+	Close()
 }
 
-func New(addr string, poolSize int) (Client, error) {
+func New(addr string, connPoolSize int) (Client, error) {
 	c := &client{
-		addr:     addr,
-		poolSize: poolSize,
-		connPool: make(chan net.Conn, poolSize),
-		closing:  make(chan struct{}),
+		addr:         addr,
+		connPoolSize: connPoolSize,
+		connTimeout:  5 * time.Second,
+		connPoolMax:  10,
+		connPool:     make(chan net.Conn, connPoolSize),
+		closing:      make(chan struct{}),
 	}
 
-	for i := 0; i < poolSize; i++ {
-		conn, err := makeConn(addr)
+	for i := 0; i < connPoolSize; i++ {
+		conn, err := c.makeConn(addr)
 		if err != nil {
 			return nil, err
 		}
@@ -40,23 +42,48 @@ func New(addr string, poolSize int) (Client, error) {
 	return c, nil
 }
 
-func makeConn(addr string) (net.Conn, error) {
+func (c *client) makeConn(addr string) (net.Conn, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", addr)
 	if err != nil {
 		return nil, err
 	}
 
-	return net.DialTCP("tcp", nil, tcpAddr)
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = conn.SetLinger(0); err != nil {
+		return nil, err
+	}
+	if err = conn.SetKeepAlive(true); err != nil {
+		return nil, err
+	}
+	if err = conn.SetKeepAlivePeriod(2 * time.Second); err != nil {
+		return nil, err
+	}
+
+	//	if err = c.refreshConn(conn); err != nil {
+	//		return nil, err
+	//	}
+
+	return conn, nil
 }
 
 type client struct {
-	addr     string
-	poolSize int
-	connPool chan net.Conn
-	closing  chan struct{}
+	addr         string
+	connPoolSize int
+	connTimeout  time.Duration
+	connPool     chan net.Conn
+	connPoolMax  int
+	closing      chan struct{}
 }
 
 var ErrTerminated = errors.New("terminated")
+
+func (c *client) refreshConn(conn net.Conn) error {
+	return conn.SetDeadline(time.Now().Add(c.connTimeout))
+}
 
 func (c *client) acquireConn() (net.Conn, error) {
 	select {
@@ -85,7 +112,11 @@ func (c *client) send(b []byte) (s *bufio.Scanner, err error) {
 	if _, err = conn.Write(b); err != nil {
 		return
 	}
+	//	if err = c.refreshConn(conn); err != nil {
+	//		return nil, err
+	//	}
 
+	log.Info("===> %+v", c)
 	return proto.NewResponseScanner(conn)
 }
 
@@ -174,18 +205,19 @@ func (c *client) Keys() (keys []string, err error) {
 	return keys, err
 }
 
-func (c *client) Close() (err error) {
+func (c *client) Close() {
 	log.Info("closing client...")
+
 	close(c.closing)
 
-	for i := 0; i < c.poolSize; i++ {
+	for i := 0; i < c.connPoolSize; i++ {
 		conn := <-c.connPool
-		log.Info("[%d] closing connection: %s", i, conn.RemoteAddr())
-		if err = conn.Close(); err != nil {
-			return
+		log.Info("[%d] closing connection: %s -> %s", i, conn.LocalAddr(), conn.RemoteAddr())
+		if err := conn.Close(); err != nil {
+			log.Err("error clossing connection: %s -> %s, err: %v", i, conn.LocalAddr(), conn.RemoteAddr(), err)
+			continue
 		}
 	}
 
 	log.Info("closing client, done.")
-	return nil
 }
