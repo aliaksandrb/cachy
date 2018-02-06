@@ -111,7 +111,7 @@ func encodeSlice(in []interface{}) ([]byte, error) {
 	}
 
 	for _, v := range in {
-		b = append(b, ESC)
+		b = append(b, NL)
 
 		encoded, err := Encode(v)
 		if err != nil {
@@ -152,14 +152,14 @@ func encodeMap(in map[interface{}]interface{}) ([]byte, error) {
 	}
 
 	for k, v := range in {
-		b = append(b, ESC)
+		b = append(b, NL)
 		key, err := Encode(k)
 		if err != nil {
 			return nil, err
 		}
 		b = append(b, key...)
 
-		b = append(b, ESC)
+		b = append(b, NL)
 		val, err := Encode(v)
 		if err != nil {
 			return nil, err

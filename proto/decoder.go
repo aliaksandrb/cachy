@@ -2,7 +2,6 @@ package proto
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"io"
 	"strconv"
@@ -11,26 +10,53 @@ import (
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
-// Decoder interface used to decode protocol format into runtime objects.
+// Decoder used to decode protocol format encoding into runtime objects.
 type Decoder interface {
-	// Decode reads from buffer buf and returns decoded obj and error err if any.
+	// Decode reads from buffer under scanner s and returns decoded runtime obj and error err if any.
 	// It should never panic because of user input.
-	Decode(buf *bufio.Reader) (obj interface{}, err error)
-	//DecodeMessage decodes incomming messages into value m. Shared between server and client.
-	// It should never panic because of user input.
-	DecodeMessage(buf *bufio.Reader) (m interface{}, err error)
+	Decode(s *bufio.Scanner) (obj interface{}, err error)
 }
 
-func NewResponseScanner(r io.Reader) (*bufio.Scanner, error) {
-	b, err := bufio.NewReader(r).ReadBytes(CR)
+// Decode implements Decoder interface.
+func Decode(s *bufio.Scanner) (obj interface{}, err error) {
+	b, err := ReadBytes(s)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewScanner(bytes.NewReader(b)), nil
+	if len(b) == 0 {
+		log.Err("empty or malformed payload: %q", b)
+		return nil, ErrBadMsg
+	}
+
+	switch b[0] {
+	case STRING:
+		return decodeString(b)
+	case INT:
+		return decodeInt(b)
+	case NIL:
+		return nil, decodeNil(s)
+	case SLICE:
+		return decodeSlice(b, s)
+	case MAP:
+		return decodeMap(b, s)
+	case ERROR:
+		return decodeErr(b)
+	}
+
+	log.Err("unsupported payload type: %q", b)
+	return nil, ErrUnsupportedType
 }
 
-// Decode implements Decoder interface.
+// MessageDecoder used to decode incomming TCP messages on a server side.
+type MessageDecoder interface {
+	// DecodeMessage decodes message in a buf into message m.
+	// Currently it is used only on server side.
+	// It should never panic because of user input.
+	DecodeMessage(buf *bufio.Reader) (m interface{}, err error)
+}
+
+// DecodeMessage implements MessageDecoder interface.
 func DecodeMessage(buf *bufio.Reader) (m interface{}, err error) {
 	defer func() {
 		if e := recover(); e != nil {
@@ -150,12 +176,12 @@ func reqWithValue(s *bufio.Scanner, req *Req) (*Req, error) {
 }
 
 func assignReqValue(s *bufio.Scanner, req *Req) error {
-	val, err := Decode(s)
+	b, err := Extract(s)
 	if err != nil {
 		return err
 	}
 
-	req.Value = val
+	req.Value = b
 
 	return nil
 }
@@ -175,36 +201,6 @@ func assignReqTTL(s *bufio.Scanner, req *Req) error {
 	req.TTL = ttl
 
 	return nil
-}
-
-func Decode(s *bufio.Scanner) (interface{}, error) {
-	b, err := ReadBytes(s)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(b) == 0 {
-		log.Err("empty or malformed payload: %q", b)
-		return nil, ErrBadMsg
-	}
-
-	switch b[0] {
-	case STRING:
-		return decodeString(b)
-	case INT:
-		return decodeInt(b)
-	case NIL:
-		return nil, decodeNil(s)
-	case SLICE:
-		return decodeSlice(b, s)
-	case MAP:
-		return decodeMap(b, s)
-	case ERROR:
-		return decodeErr(b)
-	}
-
-	log.Err("unsupported payload type: %q", b)
-	return nil, ErrUnsupportedType
 }
 
 func decodeString(b []byte) (s string, err error) {
@@ -351,44 +347,4 @@ func bytesToDuration(b []byte) (t time.Duration, err error) {
 	}
 
 	return time.Duration(ttl), nil
-}
-
-func NewScanner(r io.Reader) *bufio.Scanner {
-	s := bufio.NewScanner(r)
-	s.Split(onInput)
-	return s
-}
-
-// BytesReader interface for per-byte reading.
-type BytesReader interface {
-	// ReadBytes reads until the first occurrence of \n or \r in the underlaying reader in s.
-	ReadBytes(s *bufio.Scanner) (b []byte, err error)
-}
-
-// ReadBytes scans s until first occurance of \n or \r and returns
-// the byte slice of data being scanned.
-func ReadBytes(s *bufio.Scanner) (b []byte, err error) {
-	b = make([]byte, 0, 1)
-	var read []byte
-
-	for s.Scan() {
-		read = s.Bytes()
-		if len(read) == 0 || read[0] == NL || read[0] == CR {
-			break
-		}
-		b = append(b, read[0])
-	}
-	if err := s.Err(); err != nil {
-		return b, err
-	}
-
-	return b, nil
-}
-
-var onInput = func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if len(data) != 0 && data[0] == CR {
-		return 0, data, bufio.ErrFinalToken
-	}
-
-	return bufio.ScanBytes(data, atEOF)
 }

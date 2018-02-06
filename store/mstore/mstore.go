@@ -1,19 +1,20 @@
 package mstore
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/spaolacci/murmur3"
-
-	log "github.com/aliaksandrb/cachy/logger"
 )
 
 // TODO the more the better for concurent access.
 const defaultBucketsNum int = 3
 
 var zeroTime = time.Time{}
+
+var ErrNotFound = errors.New("not found")
 
 func New(bucketsNum int) (*mStore, error) {
 	if bucketsNum == 0 {
@@ -104,14 +105,14 @@ func (m *mStore) startPurger() {
 	}
 }
 
-func (m *mStore) Get(key string) (val interface{}, found bool, err error) {
+func (m *mStore) Get(key string) (val []byte, err error) {
 	b := m.getBucket(key)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	e, ok := b.s[key]
 
 	if !ok {
-		return nil, false, nil
+		return nil, ErrNotFound
 	}
 
 	// TODO entry level lock rather than bucket?
@@ -119,7 +120,7 @@ func (m *mStore) Get(key string) (val interface{}, found bool, err error) {
 		go m.Remove(key)
 	}
 
-	return e.val, true, nil
+	return append([]byte(nil), e.val...), nil
 }
 
 func getTTL(t time.Duration) time.Time {
@@ -130,8 +131,7 @@ func getTTL(t time.Duration) time.Time {
 	return time.Now().Add(t)
 }
 
-func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
-	log.Info("set %s %+v %v", key, val, t)
+func (m *mStore) Set(key string, val []byte, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
 	b.s[key] = &entry{val: val, ttl: getTTL(t)}
@@ -140,14 +140,14 @@ func (m *mStore) Set(key string, val interface{}, t time.Duration) error {
 	return nil
 }
 
-func (m *mStore) Update(key string, val interface{}, t time.Duration) error {
+func (m *mStore) Update(key string, val []byte, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	e, ok := b.s[key]
 	if !ok {
-		return nil
+		return ErrNotFound
 	}
 
 	e.val = val
@@ -160,8 +160,13 @@ func (m *mStore) Update(key string, val interface{}, t time.Duration) error {
 func (m *mStore) Remove(key string) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.s[key]
+	if !ok {
+		return ErrNotFound
+	}
 	delete(b.s, key)
-	b.mu.Unlock()
+
 	return nil
 }
 
@@ -187,6 +192,7 @@ func newPurger() *purger {
 
 func (p *purger) purgeStaleKeys(b *bucket) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	// TODO make lock shorter
 
 	for k, e := range b.s {
@@ -207,12 +213,10 @@ func (p *purger) purgeStaleKeys(b *bucket) {
 	//		fmt.Println("key %v is already evicted: %v", key, err)
 	//	}
 	//}
-
-	b.mu.Unlock()
 }
 
 type entry struct {
-	val interface{}
+	val []byte
 	ttl time.Time
 }
 

@@ -153,7 +153,7 @@ func TestDecodeReqMessage(t *testing.T) {
 			want: Req{
 				Cmd:   CmdSet,
 				Key:   "key",
-				Value: "value",
+				Value: []byte("$\"value\""),
 				TTL:   time.Duration(0),
 			},
 			desc: "add simple string",
@@ -162,7 +162,7 @@ func TestDecodeReqMessage(t *testing.T) {
 			want: Req{
 				Cmd:   CmdUpdate,
 				Key:   "key",
-				Value: []interface{}{"value"},
+				Value: []byte("@1\n$\"value\""),
 				TTL:   time.Duration(100),
 			},
 			desc: "update slice",
@@ -171,7 +171,7 @@ func TestDecodeReqMessage(t *testing.T) {
 			want: Req{
 				Cmd:   CmdSet,
 				Key:   "key",
-				Value: map[interface{}]interface{}{"key1": "value1", "key2": "value2"},
+				Value: []byte(":2\n$\"key1\"\n$\"value1\"\n$\"key2\"\n$\"value2\""),
 				TTL:   time.Duration(100),
 			},
 			desc: "add map with few elements",

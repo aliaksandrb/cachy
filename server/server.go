@@ -147,6 +147,7 @@ func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
 	if err == io.EOF {
 		return err
 	}
+
 	if err != nil {
 		return proto.Write(w, err)
 	}
@@ -162,14 +163,13 @@ func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
 		return proto.Write(w, err)
 	}
 
-	return proto.Write(w, result)
+	return proto.WriteRaw(w, result)
 }
 
-func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
+func (s *server) processRequest(r *proto.Req) (v []byte, err error) {
 	switch r.Cmd {
 	case proto.CmdGet:
-		v, _, err := s.store.Get(r.Key)
-		return v, err
+		return s.store.Get(r.Key)
 	case proto.CmdSet:
 		return nil, s.store.Set(r.Key, r.Value, r.TTL)
 	case proto.CmdUpdate:
@@ -177,7 +177,7 @@ func (s *server) processRequest(r *proto.Req) (v interface{}, err error) {
 	case proto.CmdRemove:
 		return nil, s.store.Remove(r.Key)
 	case proto.CmdKeys:
-		return s.store.Keys(), nil
+		return proto.Encode(s.store.Keys())
 	}
 
 	return nil, proto.ErrUnknown

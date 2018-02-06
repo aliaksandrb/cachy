@@ -23,7 +23,7 @@ Simple implementation of Redis-like in-memory cache.
 	- etc
 - ~~Golang API client~~
 - ~~Telnet-like/HTTP-like API protocol~~
-- Tests
+- ~~Tests~~
 - API spec / README
 - Deployment docs without full coverage, just a few cases and some examples of telnet/http calls to the server
 

@@ -30,6 +30,10 @@ func New(addr string, connPoolSize int) (Client, error) {
 		closing:      make(chan struct{}),
 	}
 
+	if connPoolSize == 0 {
+		connPoolSize = 1
+	}
+
 	for i := 0; i < connPoolSize; i++ {
 		conn, err := c.makeConn(addr)
 		if err != nil {
@@ -116,7 +120,6 @@ func (c *client) send(b []byte) (s *bufio.Scanner, err error) {
 	//		return nil, err
 	//	}
 
-	log.Info("===> %+v", c)
 	return proto.NewResponseScanner(conn)
 }
 

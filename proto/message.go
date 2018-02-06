@@ -25,10 +25,9 @@ func NewMessage(cmd byte, key string, value interface{}, ttl time.Duration) (b [
 	b = append(b, valueEnc...)
 
 	b = append(b, NL)
-
 	//TODO int overflow int64
 	ttlEnc := IntToBytes(int(ttl))
-
 	b = append(b, ttlEnc...)
+
 	return append(b, CR), nil
 }

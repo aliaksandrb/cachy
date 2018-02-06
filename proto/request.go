@@ -8,8 +8,7 @@ type Request interface {
 type Req struct {
 	Cmd byte
 	// TODO keep in bytes
-	Key string
-	// TODO keep in bytes
-	Value interface{}
+	Key   string
+	Value []byte
 	TTL   time.Duration
 }

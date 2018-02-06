@@ -21,9 +21,8 @@ const (
 
 // Escape chars.
 const (
-	NL  = '\n'
-	CR  = '\r'
-	ESC = NL
+	NL = '\n'
+	CR = '\r'
 )
 
 // Message types.
