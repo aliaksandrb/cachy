@@ -1,9 +1,8 @@
 package store
 
 import (
+	"errors"
 	"time"
-
-	"github.com/aliaksandrb/cachy/store/mstore"
 )
 
 type Store interface {
@@ -14,18 +13,7 @@ type Store interface {
 	Keys() []string
 }
 
-type Type int
-
-const (
-	MemoryStore = Type(iota)
-	PersistantStore
+var (
+	ErrNotFound            = errors.New("not found")
+	ErrUnsuportedStoreType = errors.New("unsuported store type")
 )
-
-func New(st Type) (Store, error) {
-	if st == MemoryStore {
-		// TODO pass at creation.
-		return mstore.New(0)
-	}
-
-	return nil, ErrInvalidStoreType
-}

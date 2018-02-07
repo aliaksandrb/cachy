@@ -12,6 +12,7 @@ import (
 
 	"github.com/aliaksandrb/cachy/proto"
 	"github.com/aliaksandrb/cachy/store"
+	"github.com/aliaksandrb/cachy/store/mstore"
 
 	log "github.com/aliaksandrb/cachy/logger"
 )
@@ -20,13 +21,13 @@ type Server interface {
 	Stop() error
 }
 
-func Run(s store.Type, addr string) (Server, error) {
+func Run(s storeType, bs int, addr string) (Server, error) {
 	listener, err := makeListener(addr)
 	if err != nil {
 		return nil, err
 	}
 
-	server, err := New(s, listener)
+	server, err := New(s, bs, listener)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +76,21 @@ func (s *server) syncClients() chan struct{} {
 	return done
 }
 
-func New(s store.Type, l *net.TCPListener) (*server, error) {
-	db, err := store.New(s)
+type storeType int
+
+const (
+	MemoryStore = storeType(iota)
+	PersistantStore
+)
+
+func New(s storeType, bs int, l *net.TCPListener) (*server, error) {
+	var db store.Store
+
+	if s != MemoryStore {
+		return nil, store.ErrUnsuportedStoreType
+	}
+
+	db, err := mstore.New(bs)
 	if err != nil {
 		return nil, err
 	}

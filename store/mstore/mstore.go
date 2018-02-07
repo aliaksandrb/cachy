@@ -1,11 +1,11 @@
 package mstore
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/aliaksandrb/cachy/store"
 	"github.com/spaolacci/murmur3"
 )
 
@@ -13,8 +13,6 @@ import (
 const defaultBucketsNum int = 3
 
 var zeroTime = time.Time{}
-
-var ErrNotFound = errors.New("not found")
 
 func New(bucketsNum int) (*mStore, error) {
 	if bucketsNum == 0 {
@@ -112,7 +110,7 @@ func (m *mStore) Get(key string) (val []byte, err error) {
 	e, ok := b.s[key]
 
 	if !ok {
-		return nil, ErrNotFound
+		return nil, store.ErrNotFound
 	}
 
 	// TODO entry level lock rather than bucket?
@@ -147,7 +145,7 @@ func (m *mStore) Update(key string, val []byte, t time.Duration) error {
 
 	e, ok := b.s[key]
 	if !ok {
-		return ErrNotFound
+		return store.ErrNotFound
 	}
 
 	e.val = val
@@ -163,7 +161,7 @@ func (m *mStore) Remove(key string) error {
 	defer b.mu.Unlock()
 	_, ok := b.s[key]
 	if !ok {
-		return ErrNotFound
+		return store.ErrNotFound
 	}
 	delete(b.s, key)
 
