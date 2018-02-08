@@ -28,6 +28,7 @@ func New(addr string, connPoolSize int) (Client, error) {
 		connPoolMax:  10,
 		connPool:     make(chan net.Conn, connPoolSize),
 		closing:      make(chan struct{}),
+		decoder:      proto.NewDecoder(),
 	}
 
 	if connPoolSize == 0 {
@@ -81,6 +82,7 @@ type client struct {
 	connPool     chan net.Conn
 	connPoolMax  int
 	closing      chan struct{}
+	decoder      proto.Decoder
 }
 
 var ErrTerminated = errors.New("terminated")
@@ -129,7 +131,7 @@ func (c *client) processMessage(b []byte) (val interface{}, err error) {
 		return nil, err
 	}
 
-	val, err = proto.Decode(response)
+	val, err = c.decoder.Decode(response)
 	if err != nil {
 		return
 	}

@@ -116,7 +116,7 @@ func TestDecode(t *testing.T) {
 		},
 	} {
 		r := bytes.NewReader(tc.in)
-		got, err := Decode(NewScanner(r))
+		got, err := NewDecoder().Decode(NewScanner(r))
 		if err != nil {
 			t.Errorf("[%d] unable to decode, input: %q, error: %v", i, tc.in, err)
 			continue
@@ -130,13 +130,13 @@ func TestDecode(t *testing.T) {
 
 func TestDecodeUnsupported(t *testing.T) {
 	r := bytes.NewReader([]byte{'>'})
-	_, err := Decode(NewScanner(r))
+	_, err := NewDecoder().Decode(NewScanner(r))
 	if err != ErrUnsupportedType {
 		t.Errorf("should be unsupported, got %q, want %q", err, ErrUnsupportedType)
 	}
 
 	r = bytes.NewReader([]byte(""))
-	_, err = Decode(NewScanner(r))
+	_, err = NewDecoder().Decode(NewScanner(r))
 	if err != ErrBadMsg {
 		t.Errorf("should be unsupported, got %q, want %q", err, ErrBadMsg)
 	}
@@ -198,7 +198,7 @@ func TestDecodeReqMessage(t *testing.T) {
 		},
 	} {
 		r := bytes.NewReader(tc.in)
-		got, err := DecodeMessage(bufio.NewReader(r))
+		got, err := NewDecoder().DecodeMessage(bufio.NewReader(r))
 		if err != nil {
 			t.Errorf("[%d] unable to decode, input: %q, error: %v", i, tc.in, err)
 			continue
@@ -219,7 +219,7 @@ func TestDecodeReqMessage(t *testing.T) {
 func TestDecodeValueMessage(t *testing.T) {
 	in := []byte("$\"kermit\"")
 	r := bytes.NewReader(in)
-	got, err := DecodeMessage(bufio.NewReader(r))
+	got, err := NewDecoder().DecodeMessage(bufio.NewReader(r))
 	if err != nil {
 		t.Errorf("unable to decode, input: %q, error: %v", in, err)
 	}
@@ -263,7 +263,7 @@ func TestDecodeInvalidMessage(t *testing.T) {
 		},
 	} {
 		r := bytes.NewReader(tc.in)
-		got, err := DecodeMessage(bufio.NewReader(r))
+		got, err := NewDecoder().DecodeMessage(bufio.NewReader(r))
 		if err == nil {
 			t.Errorf("[%d] should fail for malformed messages, input: %q, got: %+v, want: %v", i, tc.in, got, tc.want)
 		}

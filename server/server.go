@@ -100,6 +100,8 @@ func New(s storeType, bs int, l *net.TCPListener) (*server, error) {
 		listener: l,
 		closing:  make(chan struct{}, 1),
 		clients:  &sync.WaitGroup{},
+		decoder:  proto.NewDecoder(),
+		writer:   proto.NewWriter(),
 	}, nil
 }
 
@@ -108,6 +110,25 @@ type server struct {
 	listener *net.TCPListener
 	closing  chan struct{}
 	clients  *sync.WaitGroup
+	decoder  MessageDecoder
+	writer   Writer
+}
+
+// MessageDecoder used to decode incomming TCP messages on a server side.
+type MessageDecoder interface {
+	// DecodeMessage decodes message in a buf into message m.
+	// Currently it is used only on server side.
+	// It should never panic because of user input.
+	DecodeMessage(buf *bufio.Reader) (m interface{}, err error)
+}
+
+// Writer used to write streams of encoded data into io.Writer.
+type Writer interface {
+	// Write encodes obj and writes data into io.Writer w.
+	// It fails only if it ca not write to w.
+	Write(w io.Writer, obj interface{}) error
+	WriteRaw(w io.Writer, b []byte) error
+	WriteUnknownErr(w io.Writer) error
 }
 
 func (s *server) start() {
@@ -157,27 +178,27 @@ func (s *server) handleClient(conn net.Conn) {
 }
 
 func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
-	msg, err := proto.DecodeMessage(buf)
+	msg, err := s.decoder.DecodeMessage(buf)
 	if err == io.EOF {
 		return err
 	}
 
 	if err != nil {
-		return proto.Write(w, err)
+		return s.writer.Write(w, err)
 	}
 
 	req, ok := msg.(*proto.Req)
 	if !ok {
 		log.Err("unknown message type: %q", msg)
-		return proto.WriteUnknownErr(w)
+		return s.writer.WriteUnknownErr(w)
 	}
 
 	result, err := s.processRequest(req)
 	if err != nil {
-		return proto.Write(w, err)
+		return s.writer.Write(w, err)
 	}
 
-	return proto.WriteRaw(w, result)
+	return s.writer.WriteRaw(w, result)
 }
 
 func (s *server) processRequest(r *proto.Req) (v []byte, err error) {

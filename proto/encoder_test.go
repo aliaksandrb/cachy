@@ -265,7 +265,7 @@ func TestEncodeDecode(t *testing.T) {
 		}
 
 		r := bytes.NewReader(encoded)
-		decoded, err := Decode(NewScanner(r))
+		decoded, err := NewDecoder().Decode(NewScanner(r))
 		if err != nil {
 			t.Errorf("[%d] unable to decode, input: %q, error: %v", i, encoded, err)
 			continue

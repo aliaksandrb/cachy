@@ -4,18 +4,17 @@ import (
 	"io"
 )
 
-// Writer used to write streams of encoded data into io.Writer.
-type Writer interface {
-	// Write encodes obj and writes data into io.Writer w.
-	// It fails only if it ca not write to w.
-	Write(w io.Writer, obj interface{}) error
+func NewWriter() *writer {
+	return new(writer)
 }
 
+type writer struct{}
+
 // Write implements Writer interface.
-func Write(w io.Writer, obj interface{}) error {
+func (wr *writer) Write(w io.Writer, obj interface{}) error {
 	encoded, err := PrepareMessage(obj)
 	if err != nil {
-		return WriteUnknownErr(w)
+		return wr.WriteUnknownErr(w)
 	}
 
 	_, err = w.Write(encoded)
@@ -23,7 +22,7 @@ func Write(w io.Writer, obj interface{}) error {
 }
 
 // WriteRaw writes raw encoded data b into w with nil value handling.
-func WriteRaw(w io.Writer, b []byte) error {
+func (wr *writer) WriteRaw(w io.Writer, b []byte) error {
 	if b == nil || len(b) == 0 {
 		b = nilEnc
 	}
@@ -37,7 +36,7 @@ func WriteRaw(w io.Writer, b []byte) error {
 var unknownErrEncoded = makeErrEncoded()
 
 // WriteUnknownErr writes encoded ErrUnknown to writer w.
-func WriteUnknownErr(w io.Writer) error {
+func (wr *writer) WriteUnknownErr(w io.Writer) error {
 	b := append(unknownErrEncoded, CR)
 	_, err := w.Write(b)
 	return err

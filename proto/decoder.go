@@ -10,6 +10,10 @@ import (
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
+func NewDecoder() *decoder {
+	return new(decoder)
+}
+
 // Decoder used to decode protocol format encoding into runtime objects.
 type Decoder interface {
 	// Decode reads from buffer under scanner s and returns decoded runtime obj and error err if any.
@@ -17,8 +21,10 @@ type Decoder interface {
 	Decode(s *bufio.Scanner) (obj interface{}, err error)
 }
 
+type decoder struct{}
+
 // Decode implements Decoder interface.
-func Decode(s *bufio.Scanner) (obj interface{}, err error) {
+func (d *decoder) Decode(s *bufio.Scanner) (obj interface{}, err error) {
 	b, err := ReadBytes(s)
 	if err != nil {
 		return nil, err
@@ -37,9 +43,9 @@ func Decode(s *bufio.Scanner) (obj interface{}, err error) {
 	case NIL:
 		return nil, decodeNil(s)
 	case SLICE:
-		return decodeSlice(b, s)
+		return d.decodeSlice(b, s)
 	case MAP:
-		return decodeMap(b, s)
+		return d.decodeMap(b, s)
 	case ERROR:
 		return decodeErr(b)
 	}
@@ -48,16 +54,8 @@ func Decode(s *bufio.Scanner) (obj interface{}, err error) {
 	return nil, ErrUnsupportedType
 }
 
-// MessageDecoder used to decode incomming TCP messages on a server side.
-type MessageDecoder interface {
-	// DecodeMessage decodes message in a buf into message m.
-	// Currently it is used only on server side.
-	// It should never panic because of user input.
-	DecodeMessage(buf *bufio.Reader) (m interface{}, err error)
-}
-
 // DecodeMessage implements MessageDecoder interface.
-func DecodeMessage(buf *bufio.Reader) (m interface{}, err error) {
+func (d *decoder) DecodeMessage(buf *bufio.Reader) (m interface{}, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Err("unknown decoding error: %v", e)
@@ -82,7 +80,7 @@ func DecodeMessage(buf *bufio.Reader) (m interface{}, err error) {
 		return nil, err
 	}
 
-	return decode(buf, mk, marker)
+	return d.decode(buf, mk, marker)
 }
 
 func msgKindByMarker(m byte) (mk byte, err error) {
@@ -97,14 +95,14 @@ func msgKindByMarker(m byte) (mk byte, err error) {
 	return mk, ErrUnsupportedCmd
 }
 
-func decode(buf *bufio.Reader, mk byte, m byte) (obj interface{}, err error) {
+func (d *decoder) decode(buf *bufio.Reader, mk byte, m byte) (obj interface{}, err error) {
 	s := NewScanner(buf)
 
 	if mk == KindReq {
 		return decodeReq(s, m)
 	}
 
-	return Decode(s)
+	return d.Decode(s)
 }
 
 func decodeReq(s *bufio.Scanner, m byte) (req *Req, err error) {
@@ -256,7 +254,7 @@ func decodeErr(b []byte) (error, error) {
 	return errors.New(str), nil
 }
 
-func decodeSlice(head []byte, s *bufio.Scanner) (slice []interface{}, err error) {
+func (d *decoder) decodeSlice(head []byte, s *bufio.Scanner) (slice []interface{}, err error) {
 	if len(head) == 1 {
 		return
 	}
@@ -273,7 +271,7 @@ func decodeSlice(head []byte, s *bufio.Scanner) (slice []interface{}, err error)
 	slice = make([]interface{}, 0, size)
 
 	for i := 0; i < size; i++ {
-		v, err := Decode(s)
+		v, err := d.Decode(s)
 		if err != nil {
 			return nil, err
 		}
@@ -295,7 +293,7 @@ func decodeSize(b []byte) (size int, err error) {
 	return
 }
 
-func decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
+func (d *decoder) decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
 	if len(head) == 1 {
 		return
 	}
@@ -315,7 +313,7 @@ func decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}]interface{},
 	var assign bool
 
 	for i := 0; i < size*2; i++ {
-		v, err := Decode(s)
+		v, err := d.Decode(s)
 		if err != nil {
 			return nil, err
 		}
