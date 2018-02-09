@@ -90,7 +90,7 @@ func New(s storeType, bs int, l *net.TCPListener) (*server, error) {
 		return nil, store.ErrUnsuportedStoreType
 	}
 
-	db, err := mstore.New(bs)
+	db, err := mstore.New(bs, 0)
 	if err != nil {
 		return nil, err
 	}

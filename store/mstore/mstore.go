@@ -1,7 +1,6 @@
 package mstore
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -9,14 +8,17 @@ import (
 	"github.com/spaolacci/murmur3"
 )
 
-// TODO the more the better for concurent access.
 const defaultBucketsNum int = 3
+const defaultPurgeInterval int = 10
 
 var zeroTime = time.Time{}
 
-func New(bucketsNum int) (*mStore, error) {
+func New(bucketsNum int, purgeInterval int) (*mStore, error) {
 	if bucketsNum == 0 {
 		bucketsNum = defaultBucketsNum
+	}
+	if purgeInterval == 0 {
+		purgeInterval = defaultPurgeInterval
 	}
 
 	buckets := make([]*bucket, bucketsNum)
@@ -25,8 +27,9 @@ func New(bucketsNum int) (*mStore, error) {
 	}
 
 	m := &mStore{
-		buckets: buckets,
-		purger:  newPurger(),
+		purgeInterval: purgeInterval,
+		buckets:       buckets,
+		purger:        newPurger(),
 	}
 
 	go m.startPurger()
@@ -36,20 +39,9 @@ func New(bucketsNum int) (*mStore, error) {
 
 // mStore implements store.Store
 type mStore struct {
-	buckets []*bucket
-	purger  *purger
-}
-
-func (m *mStore) String() string {
-	return fmt.Sprintf(`
-		mStore {
-			bucketsNum: %d
-			keys: %v
-			buckets: {
-				%s
-			}
-		}
-	`, m.bucketsNum(), m.Keys(), m.buckets)
+	purgeInterval int
+	buckets       []*bucket
+	purger        *purger
 }
 
 func (m *mStore) bucketsNum() int {
@@ -57,7 +49,6 @@ func (m *mStore) bucketsNum() int {
 	return len(m.buckets)
 }
 
-// TODO keys as ints
 func (m *mStore) getBucket(key string) *bucket {
 	return m.buckets[m.hash([]byte(key))]
 }
@@ -72,15 +63,6 @@ type bucket struct {
 	mu sync.RWMutex
 }
 
-func (b *bucket) String() string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return fmt.Sprintf(`
-		%+v
-	`, b.s)
-}
-
 func newBucket() *bucket {
 	return &bucket{
 		s: make(map[string]*entry),
@@ -88,7 +70,7 @@ func newBucket() *bucket {
 }
 
 func (m *mStore) startPurger() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(time.Duration(m.purgeInterval) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -198,19 +180,6 @@ func (p *purger) purgeStaleKeys(b *bucket) {
 			delete(b.s, k)
 		}
 	}
-	//var key string
-	//size := len(p.store.keys)
-	//quater := size / 4
-	//if quater < 2 {
-	//	quater = size
-	//}
-
-	//for i := 0; i < quater; i++ {
-	//	key = p.store.keys[rand.Intn(size)]
-	//	if _, _, err := p.store.Get(key); err != nil {
-	//		fmt.Println("key %v is already evicted: %v", key, err)
-	//	}
-	//}
 }
 
 type entry struct {
@@ -220,13 +189,4 @@ type entry struct {
 
 func (e *entry) expired() bool {
 	return e.ttl != zeroTime && time.Now().After(e.ttl)
-}
-
-func (e *entry) String() string {
-	return fmt.Sprintf(`
-		{
-			val: %v
-			ttl: %v
-		}
-	`, e.val, e.ttl)
 }
