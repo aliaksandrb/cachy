@@ -98,6 +98,7 @@ func (m *mStore) Get(key string) (val []byte, err error) {
 	// TODO entry level lock rather than bucket?
 	if e == nil || e.expired() {
 		go m.Remove(key)
+		return nil, store.ErrNotFound
 	}
 
 	return append([]byte(nil), e.val...), nil
