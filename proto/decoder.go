@@ -303,11 +303,11 @@ func (d *decoder) decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}
 		return
 	}
 
-	if size == 0 {
-		return make(map[interface{}]interface{}, 0), nil
-	}
-
 	dict = make(map[interface{}]interface{}, size)
+
+	if size == 0 {
+		return dict, nil
+	}
 
 	var key interface{}
 	var assign bool

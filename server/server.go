@@ -17,10 +17,13 @@ import (
 	log "github.com/aliaksandrb/cachy/logger"
 )
 
+// Server represents a basic storage servier.
 type Server interface {
 	Stop() error
+	Done() <-chan struct{}
 }
 
+// Run spawns and runs a new server in background.
 func Run(s storeType, bs int, addr string) (Server, error) {
 	listener, err := makeListener(addr)
 	if err != nil {
@@ -47,8 +50,13 @@ func Run(s storeType, bs int, addr string) (Server, error) {
 	return server, nil
 }
 
+// Stop attempts to gracefully stop the server by stopping accept any new connections and let existing ones to finish.
+// After a timeout it exits anyway.
 func (s *server) Stop() error {
 	log.Info("stoping server gracefully...")
+	defer func() {
+		close(s.done)
+	}()
 
 	close(s.closing)
 
@@ -64,6 +72,11 @@ func (s *server) Stop() error {
 
 	log.Info("stoping server, done.")
 	return nil
+}
+
+// Done notifies if the server being stopped.
+func (s *server) Done() <-chan struct{} {
+	return s.done
 }
 
 func (s *server) syncClients() chan struct{} {
@@ -83,6 +96,7 @@ const (
 	PersistantStore
 )
 
+// New returns a new Server implementation.
 func New(s storeType, bs int, l *net.TCPListener) (*server, error) {
 	var db store.Store
 
@@ -98,7 +112,8 @@ func New(s storeType, bs int, l *net.TCPListener) (*server, error) {
 	return &server{
 		store:    db,
 		listener: l,
-		closing:  make(chan struct{}, 1),
+		closing:  make(chan struct{}),
+		done:     make(chan struct{}),
 		clients:  &sync.WaitGroup{},
 		decoder:  proto.NewDecoder(),
 		writer:   proto.NewWriter(),
@@ -107,9 +122,10 @@ func New(s storeType, bs int, l *net.TCPListener) (*server, error) {
 
 type server struct {
 	store    store.Store
-	listener *net.TCPListener
 	closing  chan struct{}
+	done     chan struct{}
 	clients  *sync.WaitGroup
+	listener *net.TCPListener
 	decoder  MessageDecoder
 	writer   Writer
 }
@@ -127,7 +143,9 @@ type Writer interface {
 	// Write encodes obj and writes data into io.Writer w.
 	// It fails only if it ca not write to w.
 	Write(w io.Writer, obj interface{}) error
+	// WriteRaw writes bytes as it is.
 	WriteRaw(w io.Writer, b []byte) error
+	// WriteUnknownErr is generally a shortcut to Write(w, ErrUknown).
 	WriteUnknownErr(w io.Writer) error
 }
 
@@ -176,7 +194,6 @@ func (s *server) handleClient(conn net.Conn) {
 		}
 	}
 }
-
 func (s *server) handleMessage(buf *bufio.Reader, w io.Writer) error {
 	msg, err := s.decoder.DecodeMessage(buf)
 	if err == io.EOF {

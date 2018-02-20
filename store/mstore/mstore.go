@@ -1,6 +1,7 @@
 package mstore
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,7 +14,12 @@ const defaultPurgeInterval int = 10
 
 var zeroTime = time.Time{}
 
-func New(bucketsNum int, purgeInterval int) (*mStore, error) {
+// New returns in-memory store implementation of store.Store.
+func New(bucketsNum int, purgeInterval int) (store.Store, error) {
+	if bucketsNum < 0 || purgeInterval < 0 {
+		return nil, fmt.Errorf("should be positive: bucketsNum: %v, purgeInterval: %v", bucketsNum, purgeInterval)
+	}
+
 	if bucketsNum == 0 {
 		bucketsNum = defaultBucketsNum
 	}
@@ -37,7 +43,7 @@ func New(bucketsNum int, purgeInterval int) (*mStore, error) {
 	return m, nil
 }
 
-// mStore implements store.Store
+// mStore implements store.Store.
 type mStore struct {
 	purgeInterval int
 	buckets       []*bucket
@@ -84,6 +90,7 @@ func (m *mStore) startPurger() {
 	}
 }
 
+// Get implements store.Store.
 func (m *mStore) Get(key string) (val []byte, err error) {
 	b := m.getBucket(key)
 	b.mu.RLock()
@@ -110,6 +117,7 @@ func getTTL(t time.Duration) time.Time {
 	return time.Now().Add(t)
 }
 
+// Set implements store.Store.
 func (m *mStore) Set(key string, val []byte, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
@@ -119,6 +127,7 @@ func (m *mStore) Set(key string, val []byte, t time.Duration) error {
 	return nil
 }
 
+// Update implements store.Store.
 func (m *mStore) Update(key string, val []byte, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
@@ -136,6 +145,7 @@ func (m *mStore) Update(key string, val []byte, t time.Duration) error {
 	return nil
 }
 
+// Remove implements store.Store.
 func (m *mStore) Remove(key string) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
@@ -150,10 +160,12 @@ func (m *mStore) Remove(key string) error {
 	return nil
 }
 
+// Keys implements store.Store.
 func (m *mStore) Keys() (keys []string) {
 	for _, b := range m.buckets {
 		b.mu.RLock()
 		for k := range b.s {
+			// TODO stale keys
 			keys = append(keys, k)
 		}
 		b.mu.RUnlock()

@@ -21,6 +21,10 @@ type Client interface {
 }
 
 func New(addr string, connPoolSize int) (Client, error) {
+	if connPoolSize <= 0 {
+		connPoolSize = 1
+	}
+
 	c := &client{
 		addr:         addr,
 		connPoolSize: connPoolSize,
@@ -29,10 +33,6 @@ func New(addr string, connPoolSize int) (Client, error) {
 		connPool:     make(chan net.Conn, connPoolSize),
 		closing:      make(chan struct{}),
 		decoder:      proto.NewDecoder(),
-	}
-
-	if connPoolSize == 0 {
-		connPoolSize = 1
 	}
 
 	for i := 0; i < connPoolSize; i++ {
