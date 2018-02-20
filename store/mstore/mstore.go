@@ -45,7 +45,6 @@ type mStore struct {
 }
 
 func (m *mStore) bucketsNum() int {
-	// TODO is fine for fixed-size buckets
 	return len(m.buckets)
 }
 
@@ -95,7 +94,6 @@ func (m *mStore) Get(key string) (val []byte, err error) {
 		return nil, store.ErrNotFound
 	}
 
-	// TODO entry level lock rather than bucket?
 	if e == nil || e.expired() {
 		go m.Remove(key)
 		return nil, store.ErrNotFound
@@ -115,8 +113,8 @@ func getTTL(t time.Duration) time.Time {
 func (m *mStore) Set(key string, val []byte, t time.Duration) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.s[key] = &entry{val: val, ttl: getTTL(t)}
-	b.mu.Unlock()
 
 	return nil
 }
@@ -142,6 +140,7 @@ func (m *mStore) Remove(key string) error {
 	b := m.getBucket(key)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	_, ok := b.s[key]
 	if !ok {
 		return store.ErrNotFound
@@ -174,7 +173,6 @@ func newPurger() *purger {
 func (p *purger) purgeStaleKeys(b *bucket) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	// TODO make lock shorter
 
 	for k, e := range b.s {
 		if e == nil || e.expired() {

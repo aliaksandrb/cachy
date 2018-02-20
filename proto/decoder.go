@@ -282,15 +282,15 @@ func (d *decoder) decodeSlice(head []byte, s *bufio.Scanner) (slice []interface{
 	return
 }
 
-func decodeSize(b []byte) (size int, err error) {
-	// TODO better way
-	size, err = strconv.Atoi(string(b))
+func decodeSize(b []byte) (int, error) {
+	size64, err := strconv.ParseInt(string(b), 10, 0)
 	if err != nil {
 		log.Err("unable to convert size from bytes to int: %q, error: %v", b, err)
 		return 0, ErrBadMsg
 	}
 
-	return
+	// Safe to do because ParseInt uses bitSize = 0
+	return int(size64), nil
 }
 
 func (d *decoder) decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}]interface{}, err error) {
@@ -332,9 +332,9 @@ func (d *decoder) decodeMap(head []byte, s *bufio.Scanner) (dict map[interface{}
 }
 
 func bytesToDuration(b []byte) (t time.Duration, err error) {
-	ttl, err := decodeSize(b)
+	ttl, err := strconv.ParseInt(string(b), 10, 64)
 	if err != nil {
-		log.Err("bad ttl format: %v", err)
+		log.Err("unable to convert size from bytes to int: %q, error: %v", b, err)
 		return
 	}
 

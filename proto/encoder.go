@@ -1,7 +1,6 @@
 package proto
 
 import (
-	"fmt"
 	"strconv"
 
 	log "github.com/aliaksandrb/cachy/logger"
@@ -94,7 +93,7 @@ func encodeInt(in int) []byte {
 		return intEnc
 	}
 
-	return append(intEnc, IntToBytes(in)...)
+	return append(intEnc, IntToBytes(int64(in))...)
 }
 
 var sliceEnc = []byte{SLICE}
@@ -104,7 +103,7 @@ func encodeSlice(in []interface{}) ([]byte, error) {
 		return sliceEnc, nil
 	}
 
-	b := append(sliceEnc, IntToBytes(len(in))...)
+	b := append(sliceEnc, IntToBytes(int64(len(in)))...)
 
 	if len(in) == 0 {
 		return b, nil
@@ -133,9 +132,8 @@ func encodeStringSlice(in []string) ([]byte, error) {
 	return encodeSlice(slice)
 }
 
-func IntToBytes(i int) []byte {
-	//TODO strconv
-	return []byte(fmt.Sprintf("%d", i))
+func IntToBytes(i int64) []byte {
+	return []byte(strconv.FormatInt(i, 10))
 }
 
 var mapEnc = []byte{MAP}
@@ -145,7 +143,7 @@ func encodeMap(in map[interface{}]interface{}) ([]byte, error) {
 		return mapEnc, nil
 	}
 
-	b := append(mapEnc, IntToBytes(len(in))...)
+	b := append(mapEnc, IntToBytes(int64(len(in)))...)
 
 	if len(in) == 0 {
 		return b, nil
